@@ -1,0 +1,893 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?rfc toc="yes"?>
+<?rfc symrefs="yes"?>
+<?rfc sortrefs="yes"?>
+<?rfc compact="yes"?>
+<?rfc subcompact="yes"?>
+
+<rfc>
+  <front>
+    <title abbrev="QMIN: Header Compression for QUIC">
+      QMIN: Header Compression for QUIC
+    </title>
+    <author initials="D." surname="Tikhonov" fullname="Dmitri Tikhonov">
+      <organization>LiteSpeed Technologies</organization>
+      <address>
+        <email>dtikhonov@litespeedtech.com</email>
+      </address>
+    </author>
+    <date month="November" year="2017" />
+    <abstract>
+      <t>
+        This specification defines QMIN, a compression format and protocol
+        for HTTP/2 (<xref target="RFC7540"/>) headers.  QMIN is based on
+        HPACK (<xref target="RFC7541"/>).  The modifications to
+        HPACK are meant to allow robust compression use in QUIC:  That is,
+        no head-of-line blocking and low overhead.  QMIN is guided by HPACK
+        design principles.  It inherits all of HPACK's data structures and
+        retains binary compatibility with it.  While designed with QUIC in
+        mind, QMIN can be used in other contexts.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="introduction" title="Introduction">
+      <t>
+      Google QUIC implementation uses HPACK to compress HTTP headers.  HTTP
+      headers for all requests and responses are sent on a dedicated stream.
+      This introduces head-of-line (HoL) blocking: if this stream is blocked
+      due to packet loss, all HTTP messages whose compressed headers follow
+      the lost packet in the stream are stalled.  Solving the HoL problem has
+      been one of the goals of the IETF QUIC Working Group.
+      </t>
+      <t>
+        QMIN solves the HoL problem and has the following beneficial
+        properties:
+        <list style="symbols">
+          <t>
+          The compression logic is mostly contained in the encoder, keeping
+          the decoder simple.
+          </t>
+          <t>
+          QMIN is transport-independent.
+          </t>
+          <t>
+          Memory penalty over HPACK is manageable
+                                        (<xref target="memory-comparison"/>).
+          </t>
+          <t>
+          QMIN and HPACK are interoperable
+                                        (<xref target="interoperability"/>).
+          </t>
+        </list>
+      </t>
+    </section>
+    <section title="Overview">
+      <t>
+The QMIN innovation is in using a *checkpointed* dynamic table, with
+the encoder always aware whether the decoder possesses the dynamic
+table entry (from here on, simply "entry") necessary for decoding
+a header.  The encoder learns this information from messages carried
+on a single dedicated control stream.  The reliable nature of this
+stream guarantees serialized protocol operation.
+      </t>
+      <t>
+In request and response streams, header blocks use either literal
+representations or references to entries that are known to exist in the
+decoder table.  Dynamic table changes are communicated via the control
+stream.  The process of decoding header blocks does not change the
+decoder state, thus avoiding the HoL blocking.
+      </t>
+      <t>
+QMIN inherits HPACK's data structures and encoding formats
+(see <xref target="RFC7541"/>).
+      </t>
+      <t>
+In addition, *checkpoints* are introduced.  A checkpoint is used to track
+entries added to the dynamic table and streams that reference those entries.
+      </t>
+      <t>
+Checkpoints are ordered in a list, from newest to oldest.  A new
+checkpoint gets appended to the "new" end of the checkpoint list.
+      </t>
+      <t>
+The encoder always has a checkpoint in the NEW state.  Flushing a checkpoint
+is a two-step operation.  First, a FLUSH_CHKPOINT command is sent to the
+decoder.  At that time, the encoder's NEW checkpoint becomes PENDING.  The
+decoder moves its NEW checkpoint directly to LIVE and responds with ACK_FLUSH
+message.  When the encoder receives this message, its PENDING checkpoint
+becomes LIVE and entries associated with this checkpoint become available for
+encoding.
+      </t>
+      <t>
+The encoder always has exactly one NEW checkpoint, zero or one PENDING
+checkpoints, and zero or more LIVE and DEAD checkpoints.  The decoder has
+exactly one NEW checkpoint and zero or more LIVE checkpoints.
+      </t>
+      <t>
+Unused entries are evicted indirectly, by dropping checkpoints.
+Before a checkpoint can be dropped, its state is changed to DEAD:
+the encoder cannot use an entry for encoding that is not referenced by a LIVE
+checkpoint.  Changing a checkpoint's state to DEAD allows the checkpoint to age
+out.  The encoder can decide to drop a DEAD checkpoint when it is no longer
+referenced by any active streams.  See <xref target="checkpoint-states"/>.
+      </t>
+      <t>
+The control stream is used to notify the encoder that the peer is done
+decoding HTTP headers for a stream using the STREAM_DONE message.  The encoder
+uses this information to track which checkpoints can be dropped.
+      </t>
+      <t>
+When a checkpoint is dropped, the table entries it references are checked: if
+an entry is no longer referenced by any checkpoint, the entry is evicted.
+The encoder sends the DROP_CHKPOINT command to the decoder when it drops a
+checkpoint; no acknowledgement for this command is necessary.
+      </t>
+      <t>
+Dropping a checkpoint and the entries associated with it is not limited
+to just the oldest checkpoint; any DEAD checkpoint -- as long as state
+transition rules are followed -- may be dropped.  This flexibility permits
+the encoder to use a number of strategies for entry eviction.
+      </t>
+      <t>
+As long as the maximum dynamic table size is observed, new checkpoints can
+be created; no upper limit on the number of checkpoints is specified.  A
+well-balanced spread of checkpoints permits the encoder to recycle entries
+effectively.
+      </t>
+      <t>
+The HPACK index address space stays the same.  The static table stays
+as-is.  Indices are unique between all checkpoints.  An index can be
+reused once no checkpoint references it.
+      </t>
+    </section>
+    <section title="Checkpoint States" anchor="checkpoint-states">
+      <t>
+A checkpoint can be in one of several states.  It goes through these
+states in order, without skipping any, throughout its lifetime.
+      </t>
+      <t>
+On the encoder, the checkpoint states are:
+        <list style="symbols">
+          <t>NEW</t>
+          <t>PENDING</t>
+          <t>LIVE</t>
+          <t>DEAD</t>
+        </list>
+      </t>
+      <t>
+On the decoder, only two states are used:
+        <list style="symbols">
+          <t>NEW</t>
+          <t>LIVE</t>
+        </list>
+      </t>
+      <section title="Checkpoint State: NEW">
+        <t>
+Applicability: encoder and decoder.
+        </t>
+        <t>
+All newly reused or inserted entries are referred to by the NEW
+checkpoint.  There is always a NEW checkpoint.  Whenever this
+checkpoint changes state (from NEW to PENDING), a new NEW checkpoint
+is created.
+        </t>
+        <t>
+The encoder and the decoder both begin with an empty NEW checkpoint.
+        </t>
+      </section>
+      <section title="Checkpoint State: PENDING">
+        <t>
+Applicability: encoder only.
+        </t>
+        <t>
+At some point, the encoder may want to flush new entries.  It then changes
+the NEW checkpoint state to PENDING and issues the FLUSH_CHKPOINT command.
+The entries in the PENDING checkpoint cannot be used for encoding yet;
+the encoder waits for ACK_FLUSH message.  Upon receipt of this message,
+the PENDING checkpoint changes to the LIVE state.
+        </t>
+        <t>
+There can be at most one PENDING checkpoint.
+        </t>
+      </section>
+      <section title="Checkpoint State: LIVE">
+        <t>
+Applicability: encoder and decoder.
+        </t>
+        <t>
+Entries that were added to the dynamic table when this checkpoint was in
+the NEW state can now be used to encode and decode headers.  The decoder
+moves its NEW checkpoint to LIVE when it receives the FLUSH_CHKPOINT
+command.  The encoder moves its PENDING checkpoint to LIVE when it
+receives the ACK_FLUSH message.
+        </t>
+        <t>
+Other than the maximum table size, the number of LIVE checkpoints is not
+limited.
+        </t>
+      </section>
+      <section title="Checkpoint State: DEAD">
+        <t>
+Applicability: encoder only.
+        </t>
+        <t>
+To evict old entries, the encoder marks a LIVE checkpoint as DEAD.
+(An entry that is not referenced by any LIVE checkpoint cannot be used for
+header encoding.  Marking a checkpoint DEAD allows entries to age out.)
+When all streams whose header blocks were encoded using entries referenced
+by this checkpoint have been closed, the checkpoint is destroyed and
+the DROP_CHKPOINT message is sent to the decoder.
+        </t>
+        <t>
+There can be any number of DEAD checkpoints.
+        </t>
+      </section>
+    </section>
+    <section title="Control Stream">
+      <t>
+The control stream is used to carry messages to the encoder and the decoder.
+This is the only way that dynamic table changes are communicated to the
+decoder.
+      </t>
+      <t>
+The messages are either
+        <list style="symbols">
+          <t>
+          Commands issued by the encoder to the decoder;
+          </t>
+          <t>
+          Acknowledgements issued by the decoder; or
+          </t>
+          <t>
+          Stream processed notifications sent to the encoder.
+          </t>
+        </list>
+      </t>
+      <t>
+The format of the messages is similar in structure to the format of the
+encoded header fields in the header block as specified in HPACK (RFC 7541,
+Section 6).  The same variable-length integer encoding mechanism is used
+(RFC 7541, Section 5).
+      </t>
+      <section title="Encoder Commands">
+        <t>
+The encoder issues the following commands:
+        </t>
+        <section title="INSERT_ENTRY">
+          <t>
+This message is sent by the encoder at the same time it creates a new
+indexed entry in its dynamic table.  The smallest unused index in the
+address space ( [62 - oO] ) MUST be assigned to the new entry.
+          </t>
+          <t>
+The decoder creates the new entry in the table, but does not make the
+entry available for decoding yet.
+          </t>
+          <t>
+If the specified index already exists, the decoder MUST treat is as an
+error.
+          </t>
+          <t>
+The format of this message is identical to HPACK's Literal Header Field
+Representation (RFC 7541, Section 6.2).
+          </t>
+          <t>
+            <figure>
+              <artwork>
+     0   1   2   3   4   5   6   7
+   +---+---+---+---+---+---+---+---+
+   | 0 | 1 |      Index (6+)       |
+   +---+---+-----------------------+
+   | H |     Value Length (7+)     |
+   +---+---------------------------+
+   | Value String (Length octets)  |
+   +-------------------------------+
+
+                    Figure: Insert Entry - Indexed Name
+              </artwork>
+            </figure>
+          </t>
+          <t>
+            <figure>
+              <artwork>
+     0   1   2   3   4   5   6   7
+   +---+---+---+---+---+---+---+---+
+   | 0 | 1 |           0           |
+   +---+---+-----------------------+
+   | H |     Name Length (7+)      |
+   +---+---------------------------+
+   |  Name String (Length octets)  |
+   +---+---------------------------+
+   | H |     Value Length (7+)     |
+   +---+---------------------------+
+   | Value String (Length octets)  |
+   +-------------------------------+
+
+                    Figure: Insert Entry - New Name
+              </artwork>
+            </figure>
+          </t>
+        </section>
+        <section title="REUSE_ENTRY">
+          <t>
+This message is issued instead of INSERT_ENTRY whenever the encoder uses
+an indexed representation from an existing LIVE checkpoint to encode a
+header and this index has not yet been added to the NEW checkpoint.
+          </t>
+          <t>
+Upon receipt of the REUSE_ENTRY command, the decoder creates a reference
+to the corresponding entry in its NEW checkpoint.
+          </t>
+          <t>
+The encoder MUST NOT issue multiple REUSE_ENTRY commands for the same
+entry in the context of the same NEW checkpoint.  If the decoder receives
+the REUSE_ENTRY message that specifies an index already referenced
+by its NEW checkpoint, it MUST treat it as an error.  If a non-existent
+index is specified, the decoder MUST treat is as an error.
+          </t>
+          <t>
+The format of this message is identical to HPACK's Indexed Header Field
+Representation (RFC 7541, Section 6.1).
+          </t>
+          <t>
+            <figure>
+              <artwork>
+     0   1   2   3   4   5   6   7
+   +---+---+---+---+---+---+---+---+
+   | 1 |        Index (7+)         |
+   +---+---------------------------+
+
+                    Figure: Reuse Entry Message
+              </artwork>
+            </figure>
+          </t>
+        </section>
+        <section title="FLUSH_CHKPOINT">
+          <t>
+When the encoder wants to start using entries associated with the
+NEW checkpoint, it moves it from NEW to PENDING state and issues
+the FLUSH_CHKPOINT command.
+          </t>
+          <t>
+The decoder moves its checkpoint from NEW to LIVE: all newly
+inserted entries become available for decoding.
+          </t>
+          <t>
+            <figure>
+              <artwork>
+     0   1   2   3   4   5   6   7
+   +---+---+---+---+---+---+---+---+
+   | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 |
+   +---+---------------------------+
+
+                    Figure: Flush Checkpoint
+              </artwork>
+            </figure>
+          </t>
+        </section>
+        <section title="DROP_CHKPOINT">
+          <t>
+When a DEAD checkpoint is no longer referenced by any streams, the encoder
+MAY drop it.  This means evicting all dynamic table entries whose reference
+counts have gone to zero and issuing the DROP_CHKPOINT command.
+          </t>
+          <t>
+The ID of the checkpoint to drop is its current position in the checkpoint
+list, from oldest to newest.  Thus, the oldest checkpoint has ID 0,
+second-oldest has ID 1, and so on.
+          </t>
+          <t>
+The decoder performs the same operation as the encoder: decrements
+reference counts of dynamic table entries -- evicting those whose
+reference counts are now zero -- and drops the specified checkpoint.
+          </t>
+          <t>
+            <figure>
+              <artwork>
+     0   1   2   3   4   5    6    7
+   +---+---+---+---+---+---+----+----+
+   | 0 | 0 | 0 | 0 | 0 | 1 | ID (2+) |
+   +---+------------------------+----+
+
+                    Figure: Drop Checkpoint
+              </artwork>
+            </figure>
+          </t>
+        </section>
+      </section>
+      <section title="Decoder Messages">
+        <t>
+The decoder sends replies to one of the encoder commands.
+        </t>
+        <section title="ACK_FLUSH">
+          <t>
+The decoder SHOULD informs the encoder that it has performed the flush
+using ACK_FLUSH message.  The encoder's PENDING checkpoint becomes LIVE
+when this acknowledgement is received.
+          </t>
+          <t>
+            <figure>
+              <artwork>
+     0   1   2   3   4   5   6   7
+   +---+---+---+---+---+---+---+---+
+   | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1 |
+   +---+---------------------------+
+
+                    Figure: Ack Flush
+              </artwork>
+            </figure>
+          </t>
+        </section>
+      </section>
+      <section title="Stream Notification Commands">
+        <section title="STREAM_DONE">
+          <t>
+When all HTTP headers for a stream have been decoded, this message is sent
+to inform the encoder that the peer is done with the stream.  This allows
+the encoder to decrement its reference counts, potentially triggering a
+checkpoint flush or a checkpoint drop.
+          </t>
+          <t>
+It is preferable to send this message as soon as possible.  For example,
+one does not have to wait until stream FIN is read if HTTP headers have
+been decoded and there are no trailers.
+          </t>
+          <figure>
+            <artwork>
+     0   1   2   3   4   5    6    7
+   +---+---+---+---+---+----+-----+-----+
+   | 0 | 0 | 0 | 0 | 1 | Stream ID (3+) |
+   +---+--------------------------------+
+
+                    Figure: Stream Done
+            </artwork>
+          </figure>
+          <t>
+The client knows that the server is done with the request if the stream
+is reset or it has read all of the response.  A QMIN implementation SHOULD
+use this knowledge to let the encoder know that the stream is done.
+The encoder SHOULD use the earliest indicator to move its mechanisms
+along.  Any subsequent indicators are no-ops.
+          </t>
+        </section>
+      </section>
+      <section title="Expansion">
+        <t>
+Two bit patterns are still available to the command coding scheme:
+001 and 00000001.  The former is used to encode the dynamic table size
+update by HPACK (RFC 7541, Section 6.3).  There is no inherent limitation
+in QMIN as to why it could not support this command.
+        </t>
+      </section>
+    </section>
+    <section title="Header Encoding">
+      <t>
+The headers are encoded in the same way they are encoded by HPACK,
+except QMIN does not support the dynamic table size update specified
+in RFC 7541, Section 6.3 in the headers block.  This is because header
+block decoding is not to change the decoder state.
+    </t>
+    </section>
+    <section title="Table Size Calculation">
+      <t>
+HPACK defines the dynamic table size as "the sum of the size of its
+entries."  (RFC 7541, Section 4.1).  QMIN's dynamic table entry carries
+another element -- reference count -- which increases the entry size.
+      </t>
+      <t>
+QMIN introduces checkpoints, whose size should also be accounted for.
+A decoder-side checkpoint keeps track of the index values created or
+reused when it was NEW.
+      </t>
+      <section title="Entry Size">
+        <t>
+A QMIN entry contains a reference count, which makes it larger that the
+HPACK entry.  Using a standard integer size, the QMIN entry overhead is
+set to 36 bytes: 32 bytes overhead of the HPACK entry plus four bytes
+for the additional reference count field.  Thus, the QMIN entry size is
+the sum of the entry name size, the entry value size, and 36.
+        </t>
+      </section>
+      <section title="Checkpoint Size">
+        <t>
+QMIN uses the smallest possible available value (Section 4.1.2) in the
+index address space for new entries.  Therefore, the total number of
+index values is at most the value of the largest index in use.  A
+checkpoint can track indices via a bitmask: 1 bit per index.  The size
+of a checkpoint, then, is defined as
+
+          <figure>
+            <artwork>
+    (Highest Index Value - 62) / 8 + 128
+            </artwork>
+          </figure>
+
+The additional 128 bytes is the checkpoint overhead.
+
+        
+        </t>
+      </section>
+      <section title="Overall Table Size">
+        <t>
+The decoder table size is calculated as number of entries times the entry
+size as calculated in Section 6.1 plus the number of checkpoints times
+the checkpoint size as calculated in Section 6.2.
+        </t>
+      </section>
+      <section title="Comparison with HPACK" anchor="memory-comparison">
+        <t>
+In HPACK, a table with 700 dynamic entries and 35,000 bytes allocated to
+header names and values is
+
+          <figure>
+            <artwork>
+    700 * 32 + 35,000 = 57,400 bytes.
+            </artwork>
+          </figure>
+
+The same table in QMIN with 10 checkpoints is
+
+          <figure>
+            <artwork>
+    700 * 36 + 35,000 + 10 * ((1000 / 8) + 128) = 62,730 bytes.
+            </artwork>
+          </figure>
+
+This is a 9% increase in memory consumption.
+
+        
+        </t>
+      </section>
+    </section>
+    <section title="Encoding Process">
+      <t>
+Given a header field to compress, the encoder returns the compressed
+representation of it.  In addition, it may emit one or more commands
+that should be sent on the control stream.
+      </t>
+      <section title="Indexable Header Fields">
+        <t>
+An indexable header field is that which the user specifies as "with
+indexing" (RFC 7541, Section 6.2).
+        </t>
+        <section title="New Index">
+          <t>
+If no matching entry is found, a new entry is created, its ID is recorded
+in the NEW checkpoint, and the encoder emits the INSERT_ENTRY command.
+          </t>
+          <t>
+If the encoded name component refers to an existing entry, this entry is
+reused as described in <xref target="existing-index"/>.
+          </t>
+        </section>
+        <section title="Existing Index" anchor="existing-index">
+          <t>
+An indexable header field causes the encoder to search the table.
+If an existing dynamic table entry is found that is referenced by at
+least one LIVE checkpoint, it can be used to encode the header field.
+The encoder records a reference to this index in one of the checkpoints.
+(Which checkpoint to select can be decided based on strategy.  See
+<xref target="flushing-strategies"/>).  If the NEW checkpoint does not
+have a reference to this index, the index is recorded in the NEW checkpoint
+and the REUSE_ENTRY command is emitted.
+          </t>
+        </section>
+      </section>
+      <section title="Non-indexable Header Fields">
+        <t>
+Non-indexable header fields are compressed the same way as HPACK (RFC 7541,
+Sections 6.2.2 and 6.2.3).  The encoder state is not changed.  No command
+is emitted.
+        </t>
+      </section>
+      <section title="When Maximum Table Size Is Reached">
+        <t>
+When the encoder table reaches its maximum size, further insertions into
+the dynamic table are not possible.  In this case, the encoder compresses
+header fields without inserting or reusing entries and without emitting
+any commands.
+      </t>
+        <t>
+A simple recovery strategy is to mark one or more checkpoints DEAD
+immediately.
+      </t>
+        <t>
+Alternatively, the existing table may provide an acceptable compression
+level.  It may be more efficient to wait until this level falls below a
+threshold before marking checkpoints DEAD, as it may become possible to
+drop an already-DEAD checkpoint before the threshold is reached.
+      </t>
+        <t>
+The encoder SHOULD try to avoid reaching a point when it can no longer
+insert new entries.  See <xref target="encoder-strategies"/>.
+      </t>
+      </section>
+      <section title="Memory Cost of Flushing">
+        <t>
+Because flushing automatically creates a new NEW checkpoint, it is
+possible to get into a situation where a flush is not possible due
+to the memory constraint.  If inserting a new entry would result in
+subsequent inability to flush, the encoder SHOULD flush instead.
+        </t>
+      </section>
+    </section>
+    <section title="Decoding Process">
+      <t>
+All header field representations defined in HPACK (Section 6 of
+<xref target="RFC7541"/>) are used as-is.  Dynamic size update
+(Ibid., Section 6.3) or an unknown command MUST be treated as an error.
+      </t>
+      <t>
+The decoder looks up dynamic entries in its table when it is given
+a header list to decode.  If corresponding entry is not found or if
+it is found but not referred to by any of LIVE checkpoints, this MUST
+be treated as an error.
+      </t>
+    </section>
+    <section anchor="encoder-strategies" title="Encoder Strategies">
+      <section anchor="flushing-strategies" title="Flushing and Dropping">
+        <t>
+The encoder decides when to flush checkpoints and when to declare
+them dead.  Flushing SHOULD occur when enough new entries have been
+created to try to reuse them.  Marking checkpoints as DEAD SHOULD happen
+before the table size is exhausted.
+        </t>
+        <t>
+If an entry used to encode a header field is referenced to by more than
+one LIVE checkpoint, one of them is selected to refer to the stream ID
+whose header field has been encoded.  Which LIVE checkpoint to pick is
+a decision that also affects compression performance.
+        </t>
+        <t>
+Several strategies are outlined below.
+        </t>
+        <section title="Simple Strategy">
+          <t>
+The encoder picks a number of streams to use as a threshold for flushing
+checkpoints.  Every time header blocks for N streams have been encoded,
+flush.
+          </t>
+          <t>
+The encoder picks the oldest checkpoint to mark as DEAD.  It does so when
+table size reaches some proportion, let's say 3/4, of the maximum table
+size.
+          </t>
+          <t>
+The newest LIVE checkpoint that references an entry used for encoding is
+picked to record the stream ID.
+          </t>
+          <t>
+This strategy is estimated to work well most of the time due to the
+temporal aspect of the checkpoint dropping policy.  When a connection
+is used to serve a small number of requests, however, the compression
+will be overall suboptimal, as the initial period when no dynamic table
+is available for encoding is amortized poorly.
+          </t>
+        </section>
+        <section title="Rule-Based Strategy">
+          <t>
+Heuristic rules may provide performance improvement over the simple
+strategy above.  For example:
+            <list style="symbols">
+              <t>
+      Flush very often, perhaps once for every new stream, when the
+      number of dynamic entries is very small (such as when the
+      encoder has just been instantiated).  Since the table size is
+      likely to be small when only few dynamic entries exist, one can
+      fit a lot of checkpoints and still be able to add new entries
+      to the table.  These early-flushed checkpoints will also be easier
+      to drop later, as they are not referenced by many streams.
+              </t>
+              <t>
+      Flush when the number of newly added entries is 1/10 of the number
+      of existing entries.  When this many new entries have been added,
+      it is a likely indicator making them available for encoding will
+      improve overall compression.
+              </t>
+              <t>
+        When declaring a checkpoint DEAD:
+                <list style="symbols">
+                  <t>
+          Pick a LIVE checkpoint that is referenced by the fewest existing
+          streams; or
+                  </t>
+                  <t>
+          Pick a LIVE checkpoint that references the largest number
+          of old entries, where an "old" entry is that which has not
+          been used for encoding in a period of some number of
+          checkpoints.
+                  </t>
+                </list>
+              </t>
+            </list>
+          </t>
+          <t>
+Other rules are possible.
+          </t>
+        </section>
+        <section title="Feedback-Based Strategy">
+          <t>
+The goal of QMIN is to produce the best compression.  The compression
+level can be computed by dividing the sum of the sizes of all header fields
+submitted for compression by the number of compressed bytes returned *plus*
+the size of all commands sent to the encoder.  A checkpoint can be taken
+as unit of time and a decaying average can be computed.
+          </t>
+          <t>
+Availability of entries that can be used for compression directly affects
+compression performance.  This availability, in turn, is a function
+of how often checkpoints are flushed and which checkpoints are marked
+for deletion.  Flushing very often costs memory; infrequent flushing
+delays entry availability.
+          </t>
+          <t>
+It is possible to come up with a dynamic function that adjusts these
+parameters based on feedback: the compression performance.
+          </t>
+        </section>
+      </section>
+      <section title="Control Channel Cost" anchor="control-channel-cost">
+        <t>
+Sending commands on the control channel affects the overall compression
+level.  Sending an INSERT_ENTRY command for a header field that is
+never reused is more expensive than not inserting the field at all.
+A single large, ever-changing HTTP header (for example, session state
+in a cookie) could defeat the compression mechanism.  The encoder SHOULD
+prevent this from happening.
+        </t>
+        <t>
+Since a header field that repeats is likely to repeat more than once,
+a simple conservative approach is never to insert a header field that is
+not known to have repeated.  Because HTTP header names are relatively
+small and not as numerous as the header values, it is possible to maintain
+a history of a number of recently compressed header fields.  (To use
+less memory, hashes of header values, instead of the values themselves,
+can be stored.)  The encoder can consult this history and only issue an
+INSERT_ENTRY command if the header field has been seen before.
+        </t>
+      </section>
+    </section>
+    <section title="HPACK Interoperability" anchor="interoperability">
+      <t>
+Because QMIN uses the same binary format as HPACK, the two are
+interoperable.  This makes it possible for peers to use the current
+HTTP/QUIC HPACK mechanism to talk to peers that use QMIN.  It is useful:
+all implementations do not have to start using QMIN at the same time.
+      </t>
+      <t>
+For this to work, four things must be true:
+        <list style="numbers">
+          <t>
+      The HPACK side must advertise maximum dynamic table size of zero.
+          </t>
+          <t>
+      The HPACK side must not send dynamic table size updates.
+          </t>
+          <t>
+      The HPACK side must consume and discard data sent on the control
+      stream.  This is so that QMIN sender does not get stuck when it
+      reaches the stream flow control limit.
+          </t>
+          <t>
+      The HPACK side must assume that peer's dynamic table size is
+      zero.  This is to prevent HPACK encoder from relying on dynamic
+      entries.
+          </t>
+        </list>
+      </t>
+      <t>
+(1) and (2) are already true according to <xref target="I-D.ietf-quic-http"/>.
+(3) and (4) are trivial modifications.
+      </t>
+    </section>
+    <section title="Implementation Notes">
+      <section title="Control Messages Made Easy">
+        <t>
+Since INSERT_ENTRY and REUSE_ENTRY messages are identical to the
+encoded header field representation, the latter can be placed onto
+the control stream verbatim.  Generate once, use twice.
+        </t>
+      </section>
+    </section>
+    <section title="QMIN Drawbacks">
+      <t>
+The following QMIN properties affect compression negatively:
+        <list style="symbols">
+          <t>
+      All insertion commands are duplicated: they are sent both as
+      literal representation in headers block and as insertion commands
+      on the control stream.
+          </t>
+          <t>
+      A new entry cannot be used until the checkpoint is flushed and
+      the encoder receives ACK_FLUSH message.  Until that time, the
+      header field literal representation must be used for subsequent
+      encodings.
+          </t>
+        </list>
+      </t>
+    </section>
+    <section title="Acknowledgements">
+      <t>
+      QMIN is based on HPACK (<xref target="RFC7540"/>); I am thankful
+      to its authors.
+      </t>
+      <t>
+      Observations of the following members of the IETF QUIC WG have been
+      particularly insightful:
+      <list style="symbols">
+        <t>Adam Frindell;</t>
+        <t>Charles 'Buck' Krasic; and</t>
+        <t>Mike Bishop.</t>
+      </list>
+      </t>
+      <t>
+      Finally, my colleagues at LiteSpeed Technologies reviewed the rough
+      draft and provided valuable feedback:
+      <list style="symbols">
+        <t>George Wang;</t>
+        <t>Ron Saad.</t>
+      </list>
+      </t>
+    </section>
+  </middle>
+  <back>
+    <references title="Normative References">
+      <reference anchor="RFC7540" target="https://www.rfc-editor.org/info/rfc7540">
+        <front>
+          <title>Hypertext Transfer Protocol Version 2 (HTTP/2)</title>
+          <author initials="M." surname="Belshe" fullname="M. Belshe">
+            <organization />
+          </author>
+          <author initials="R." surname="Peon" fullname="R. Peon">
+            <organization />
+          </author>
+          <author initials="M." surname="Thomson" fullname="M. Thomson" role="editor">
+            <organization />
+          </author>
+          <date year="2015" month="May" />
+          <abstract>
+            <t>This specification describes an optimized expression of the semantics of the Hypertext Transfer Protocol (HTTP), referred to as HTTP version 2 (HTTP/2).  HTTP/2 enables a more efficient use of network resources and a reduced perception of latency by introducing header field compression and allowing multiple concurrent exchanges on the same connection.  It also introduces unsolicited push of representations from servers to clients.</t>
+            <t>This specification is an alternative to, but does not obsolete, the HTTP/1.1 message syntax.  HTTP's existing semantics remain unchanged.</t>
+          </abstract>
+        </front>
+        <seriesInfo name="RFC" value="7540" />
+        <seriesInfo name="DOI" value="10.17487/RFC7540" />
+      </reference>
+      <reference anchor="RFC7541" target="https://www.rfc-editor.org/info/rfc7541">
+        <front>
+          <title>HPACK: Header Compression for HTTP/2</title>
+          <author initials="R." surname="Peon" fullname="R. Peon">
+            <organization />
+          </author>
+          <author initials="H." surname="Ruellan" fullname="H. Ruellan">
+            <organization />
+          </author>
+          <date year="2015" month="May" />
+          <abstract>
+            <t>This specification defines HPACK, a compression format for efficiently representing HTTP header fields, to be used in HTTP/2.</t>
+          </abstract>
+        </front>
+        <seriesInfo name="RFC" value="7541" />
+        <seriesInfo name="DOI" value="10.17487/RFC7541" />
+      </reference>
+    </references>
+    <references title="Informative References">
+      <reference anchor='I-D.ietf-quic-http'>
+        <front>
+          <title>Hypertext Transfer Protocol (HTTP) over QUIC</title>
+          <author initials='M' surname='Bishop' fullname='Mike Bishop'>
+              <organization />
+          </author>
+          <date month='October' day='14' year='2017' />
+          <abstract><t>The QUIC transport protocol has several features that are desirable in a transport for HTTP, such as stream multiplexing, per-stream flow control, and low-latency connection establishment.  This document describes a mapping of HTTP semantics over QUIC.  This document also identifies HTTP/2 features that are subsumed by QUIC, and describes how HTTP/2 extensions can be ported to QUIC.</t></abstract>
+        </front>
+        <seriesInfo name='Internet-Draft' value='draft-ietf-quic-http-07' />
+        <format type='TXT'
+                target='http://www.ietf.org/internet-drafts/draft-ietf-quic-http-07.txt' />
+      </reference>
+    </references>
+  </back>
+</rfc>
