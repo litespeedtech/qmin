@@ -170,8 +170,7 @@ Applicability: encoder and decoder.
         <t>
 All newly reused or inserted entries are referred to by the NEW
 checkpoint.  There is always a NEW checkpoint.  Whenever this
-checkpoint changes state (from NEW to PENDING), a new NEW checkpoint
-is created.
+checkpoint changes state, a new NEW checkpoint is created.
         </t>
         <t>
 The encoder and the decoder both begin with an empty NEW checkpoint.
@@ -567,11 +566,14 @@ reused as described in <xref target="existing-index"/>.
 An indexable header field causes the encoder to search the table.
 If an existing dynamic table entry is found that is referenced by at
 least one LIVE checkpoint, it can be used to encode the header field.
-The encoder records a reference to this index in one of the checkpoints.
-(Which checkpoint to select can be decided based on strategy.  See
-<xref target="flushing-strategies"/>).  If the NEW checkpoint does not
-have a reference to this index, the index is recorded in the NEW checkpoint
-and the REUSE_ENTRY command is emitted.
+The encoder records a reference to the stream using this entry in one
+of the checkpoints.  (Which checkpoint to select can be decided based
+on strategy.  See <xref target="flushing-strategies"/>).
+          </t>
+          <t>
+If the NEW checkpoint does not have a reference to this entry, the
+reference is recorded in the NEW checkpoint and the REUSE_ENTRY command
+is emitted.
           </t>
         </section>
       </section>
@@ -712,7 +714,7 @@ Other rules are possible.
 The goal of QMIN is to produce the best compression.  The compression
 level can be computed by dividing the sum of the sizes of all header fields
 submitted for compression by the number of compressed bytes returned *plus*
-the size of all commands sent to the encoder.  A checkpoint can be taken
+the size of all commands sent to the decoder.  A checkpoint can be taken
 as unit of time and a decaying average can be computed.
           </t>
           <t>

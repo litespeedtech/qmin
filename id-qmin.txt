@@ -4,7 +4,7 @@
 
 Network Working Group                                        D. Tikhonov
 Internet-Draft                                    LiteSpeed Technologies
-Expires: May 11, 2018                                   November 7, 2017
+Expires: May 12, 2018                                   November 8, 2017
 
 
                    QMIN: Header Compression for QUIC
@@ -34,7 +34,7 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on May 11, 2018.
+   This Internet-Draft will expire on May 12, 2018.
 
 Copyright Notice
 
@@ -53,7 +53,7 @@ Copyright Notice
 
 
 
-Tikhonov                  Expires May 11, 2018                  [Page 1]
+Tikhonov                  Expires May 12, 2018                  [Page 1]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -109,7 +109,7 @@ Table of Contents
 
 
 
-Tikhonov                  Expires May 11, 2018                  [Page 2]
+Tikhonov                  Expires May 12, 2018                  [Page 2]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -165,7 +165,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 11, 2018                  [Page 3]
+Tikhonov                  Expires May 12, 2018                  [Page 3]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -221,7 +221,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 11, 2018                  [Page 4]
+Tikhonov                  Expires May 12, 2018                  [Page 4]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -249,8 +249,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
    All newly reused or inserted entries are referred to by the NEW
    checkpoint.  There is always a NEW checkpoint.  Whenever this
-   checkpoint changes state (from NEW to PENDING), a new NEW checkpoint
-   is created.
+   checkpoint changes state, a new NEW checkpoint is created.
 
    The encoder and the decoder both begin with an empty NEW checkpoint.
 
@@ -277,7 +276,8 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 11, 2018                  [Page 5]
+
+Tikhonov                  Expires May 12, 2018                  [Page 5]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -333,7 +333,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 11, 2018                  [Page 6]
+Tikhonov                  Expires May 12, 2018                  [Page 6]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -389,7 +389,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 11, 2018                  [Page 7]
+Tikhonov                  Expires May 12, 2018                  [Page 7]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -445,7 +445,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 11, 2018                  [Page 8]
+Tikhonov                  Expires May 12, 2018                  [Page 8]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -501,7 +501,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 11, 2018                  [Page 9]
+Tikhonov                  Expires May 12, 2018                  [Page 9]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -557,7 +557,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 11, 2018                 [Page 10]
+Tikhonov                  Expires May 12, 2018                 [Page 10]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -606,20 +606,21 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    An indexable header field causes the encoder to search the table.  If
    an existing dynamic table entry is found that is referenced by at
    least one LIVE checkpoint, it can be used to encode the header field.
-   The encoder records a reference to this index in one of the
-   checkpoints.  (Which checkpoint to select can be decided based on
-   strategy.  See Section 9.1).  If the NEW checkpoint does not have a
+   The encoder records a reference to the stream using this entry in one
+   of the checkpoints.  (Which checkpoint to select can be decided based
+   on strategy.  See Section 9.1).
 
 
 
 
-Tikhonov                  Expires May 11, 2018                 [Page 11]
+Tikhonov                  Expires May 12, 2018                 [Page 11]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
-   reference to this index, the index is recorded in the NEW checkpoint
-   and the REUSE_ENTRY command is emitted.
+   If the NEW checkpoint does not have a reference to this entry, the
+   reference is recorded in the NEW checkpoint and the REUSE_ENTRY
+   command is emitted.
 
 7.2.  Non-indexable Header Fields
 
@@ -668,8 +669,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-
-Tikhonov                  Expires May 11, 2018                 [Page 12]
+Tikhonov                  Expires May 12, 2018                 [Page 12]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -725,7 +725,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 11, 2018                 [Page 13]
+Tikhonov                  Expires May 12, 2018                 [Page 13]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -749,7 +749,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    The goal of QMIN is to produce the best compression.  The compression
    level can be computed by dividing the sum of the sizes of all header
    fields submitted for compression by the number of compressed bytes
-   returned *plus* the size of all commands sent to the encoder.  A
+   returned *plus* the size of all commands sent to the decoder.  A
    checkpoint can be taken as unit of time and a decaying average can be
    computed.
 
@@ -781,7 +781,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 11, 2018                 [Page 14]
+Tikhonov                  Expires May 12, 2018                 [Page 14]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -837,7 +837,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 11, 2018                 [Page 15]
+Tikhonov                  Expires May 12, 2018                 [Page 15]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -893,4 +893,4 @@ Author's Address
 
 
 
-Tikhonov                  Expires May 11, 2018                 [Page 16]
+Tikhonov                  Expires May 12, 2018                 [Page 16]
