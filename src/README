@@ -1,0 +1,48 @@
+QMIN PoC README
+===============
+
+Here are proof-of-concept QMIN encoder and decoder along with the test
+program.
+
+The code demonstrates viability of QMIN as header compression protocol
+for QUIC.  In particular:
+
+   - QMIN solves the HoL problem;
+   - The compression logic is mostly contained in the encoder, keeping
+     the decoder simple;
+   - QMIN is transport-independent; and
+   - Memory penalty over HPACK is manageable.
+
+QMIN encoder and decoder (qmin_enc.c and qmin_dec.c) are based on LSQUIC
+Client Library's HPACK implementation.
+
+The test program (test-enc.c) is a driver for a single encoder-decoder pair.
+It performs stream creation, encoding of header fields, decoding of header
+fields by the decoder (including their validation), and it emulates the
+control channel sending QMIN control messages back and forth.
+
+test-enc usage:
+
+    -E      Trace encoder execution
+    -D      Trace decoder execution
+    -s      Dump encoder and decoder states.  The following information
+              is printed:
+                - Current compression level;
+                - Memory used, both real and the QMIN table size;
+                - List of all dynamic table entries and their reference
+                  counts; and
+                - List of all checkpoints along with their stream and
+                    entry references.
+    -c CAP  Specify maximum table capacity.  The default is 64K.
+    -r SEED Finish random stream instead of always the last one.  SEED
+              specifies the seed for repeatable run
+
+The new code (not the HPACK core) is optimized for readability rather than
+performance.  Encoder's flushing and eviction strategies are not the best,
+but they are OK as far as the proof-of-concept is concerned.  The messages
+informing the encoder of streams being done are faked in test-enc.c (as it
+is really not the job of the decoder to know when a stream is done).
+
+Feel free to comment, open GitHub issues, and so on.
+
+1. https://github.com/litespeedtech/lsquic-client/tree/master/src/liblsquic
