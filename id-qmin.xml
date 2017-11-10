@@ -262,11 +262,9 @@ address space ( [62 - oO] ) MUST be assigned to the new entry.
           </t>
           <t>
 The decoder creates the new entry in the table, but does not make the
-entry available for decoding yet.
-          </t>
-          <t>
-If the specified index already exists, the decoder MUST treat is as an
-error.
+entry available for decoding yet.  If indexed name representation is
+used, but the decoder does not have this entry already referenced by
+its NEW checkpoint, it MUST treat it as an error.
           </t>
           <t>
 The format of this message is identical to HPACK's Literal Header Field
@@ -402,7 +400,7 @@ The decoder sends replies to one of the encoder commands.
         </t>
         <section title="ACK_FLUSH">
           <t>
-The decoder SHOULD informs the encoder that it has performed the flush
+The decoder SHOULD inform the encoder that it has performed the flush
 using ACK_FLUSH message.  The encoder's PENDING checkpoint becomes LIVE
 when this acknowledgement is received.
           </t>

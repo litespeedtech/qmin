@@ -4,7 +4,7 @@
 
 Network Working Group                                        D. Tikhonov
 Internet-Draft                                    LiteSpeed Technologies
-Expires: May 12, 2018                                   November 8, 2017
+Expires: May 14, 2018                                  November 10, 2017
 
 
                    QMIN: Header Compression for QUIC
@@ -34,7 +34,7 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on May 12, 2018.
+   This Internet-Draft will expire on May 14, 2018.
 
 Copyright Notice
 
@@ -53,7 +53,7 @@ Copyright Notice
 
 
 
-Tikhonov                  Expires May 12, 2018                  [Page 1]
+Tikhonov                  Expires May 14, 2018                  [Page 1]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -109,7 +109,7 @@ Table of Contents
 
 
 
-Tikhonov                  Expires May 12, 2018                  [Page 2]
+Tikhonov                  Expires May 14, 2018                  [Page 2]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -165,7 +165,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 12, 2018                  [Page 3]
+Tikhonov                  Expires May 14, 2018                  [Page 3]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -221,7 +221,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 12, 2018                  [Page 4]
+Tikhonov                  Expires May 14, 2018                  [Page 4]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -277,7 +277,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 12, 2018                  [Page 5]
+Tikhonov                  Expires May 14, 2018                  [Page 5]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -333,16 +333,15 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 12, 2018                  [Page 6]
+Tikhonov                  Expires May 14, 2018                  [Page 6]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
    The decoder creates the new entry in the table, but does not make the
-   entry available for decoding yet.
-
-   If the specified index already exists, the decoder MUST treat is as
-   an error.
+   entry available for decoding yet.  If indexed name representation is
+   used, but the decoder does not have this entry already referenced by
+   its NEW checkpoint, it MUST treat it as an error.
 
    The format of this message is identical to HPACK's Literal Header
    Field Representation (RFC 7541, Section 6.2).
@@ -386,15 +385,15 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    The encoder MUST NOT issue multiple REUSE_ENTRY commands for the same
    entry in the context of the same NEW checkpoint.  If the decoder
    receives the REUSE_ENTRY message that specifies an index already
+   referenced by its NEW checkpoint, it MUST treat it as an error.  If a
 
 
 
-Tikhonov                  Expires May 12, 2018                  [Page 7]
+Tikhonov                  Expires May 14, 2018                  [Page 7]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
-   referenced by its NEW checkpoint, it MUST treat it as an error.  If a
    non-existent index is specified, the decoder MUST treat is as an
    error.
 
@@ -445,7 +444,8 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 12, 2018                  [Page 8]
+
+Tikhonov                  Expires May 14, 2018                  [Page 8]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -463,9 +463,9 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 4.2.1.  ACK_FLUSH
 
-   The decoder SHOULD informs the encoder that it has performed the
-   flush using ACK_FLUSH message.  The encoder's PENDING checkpoint
-   becomes LIVE when this acknowledgement is received.
+   The decoder SHOULD inform the encoder that it has performed the flush
+   using ACK_FLUSH message.  The encoder's PENDING checkpoint becomes
+   LIVE when this acknowledgement is received.
 
         0   1   2   3   4   5   6   7
       +---+---+---+---+---+---+---+---+
@@ -501,7 +501,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 12, 2018                  [Page 9]
+Tikhonov                  Expires May 14, 2018                  [Page 9]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -557,7 +557,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 12, 2018                 [Page 10]
+Tikhonov                  Expires May 14, 2018                 [Page 10]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -613,7 +613,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 12, 2018                 [Page 11]
+Tikhonov                  Expires May 14, 2018                 [Page 11]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -669,7 +669,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 12, 2018                 [Page 12]
+Tikhonov                  Expires May 14, 2018                 [Page 12]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -725,7 +725,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 12, 2018                 [Page 13]
+Tikhonov                  Expires May 14, 2018                 [Page 13]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -781,7 +781,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 12, 2018                 [Page 14]
+Tikhonov                  Expires May 14, 2018                 [Page 14]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -837,7 +837,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 12, 2018                 [Page 15]
+Tikhonov                  Expires May 14, 2018                 [Page 15]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -893,4 +893,4 @@ Author's Address
 
 
 
-Tikhonov                  Expires May 12, 2018                 [Page 16]
+Tikhonov                  Expires May 14, 2018                 [Page 16]
