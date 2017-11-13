@@ -4,10 +4,12 @@
 
 QUIC Working Group                                           D. Tikhonov
 Internet-Draft                                    LiteSpeed Technologies
-Expires: May 17, 2018                                  November 13, 2017
+Intended status: Standards Track                       November 13, 2017
+Expires: May 17, 2018
 
 
                    QMIN: Header Compression for QUIC
+                      draft-tikhonov-quic-qmin-00
 
 Abstract
 
@@ -48,8 +50,6 @@ Copyright Notice
    carefully, as they describe your rights and restrictions with respect
    to this document.  Code Components extracted from this document must
    include Simplified BSD License text as described in Section 4.e of
-   the Trust Legal Provisions and are provided without warranty as
-   described in the Simplified BSD License.
 
 
 
@@ -57,6 +57,9 @@ Tikhonov                  Expires May 17, 2018                  [Page 1]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
+
+   the Trust Legal Provisions and are provided without warranty as
+   described in the Simplified BSD License.
 
 Table of Contents
 
@@ -103,9 +106,6 @@ Table of Contents
      11.1.  Control Messages Made Easy . . . . . . . . . . . . . . .  15
    12. QMIN Drawbacks  . . . . . . . . . . . . . . . . . . . . . . .  15
    13. Acknowledgements  . . . . . . . . . . . . . . . . . . . . . .  16
-   14. References  . . . . . . . . . . . . . . . . . . . . . . . . .  16
-     14.1.  Normative References . . . . . . . . . . . . . . . . . .  16
-     14.2.  Informative References . . . . . . . . . . . . . . . . .  16
 
 
 
@@ -114,6 +114,9 @@ Tikhonov                  Expires May 17, 2018                  [Page 2]
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
+   14. References  . . . . . . . . . . . . . . . . . . . . . . . . .  16
+     14.1.  Normative References . . . . . . . . . . . . . . . . . .  16
+     14.2.  Informative References . . . . . . . . . . . . . . . . .  16
    Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  16
 
 1.  Introduction
@@ -160,9 +163,6 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    Checkpoints are ordered in a list, from newest to oldest.  A new
    checkpoint gets appended to the "new" end of the checkpoint list.
 
-   The encoder always has a checkpoint in the NEW state.  Flushing a
-   checkpoint is a two-step operation.  First, a FLUSH_CHKPOINT command
-
 
 
 Tikhonov                  Expires May 17, 2018                  [Page 3]
@@ -170,6 +170,8 @@ Tikhonov                  Expires May 17, 2018                  [Page 3]
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
+   The encoder always has a checkpoint in the NEW state.  Flushing a
+   checkpoint is a two-step operation.  First, a FLUSH_CHKPOINT command
    is sent to the decoder.  At that time, the encoder's NEW checkpoint
    becomes PENDING.  The decoder moves its NEW checkpoint directly to
    LIVE and responds with ACK_FLUSH message.  When the encoder receives
@@ -214,8 +216,6 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    The HPACK index address space stays the same.  The static table stays
    as-is.  Indices are unique between all checkpoints.  An index can be
    reused once no checkpoint references it.
-
-
 
 
 

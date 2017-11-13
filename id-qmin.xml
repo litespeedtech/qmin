@@ -6,7 +6,7 @@
 <?rfc compact="yes"?>
 <?rfc subcompact="yes"?>
 
-<rfc>
+<rfc docName="draft-tikhonov-quic-qmin-00" category="std">
   <front>
     <title abbrev="QMIN: Header Compression for QUIC">
       QMIN: Header Compression for QUIC
