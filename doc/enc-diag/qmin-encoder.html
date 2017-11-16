@@ -1,0 +1,140 @@
+<html>
+	<head>
+		<title>QMIN Encoder State Diagrammed</title>
+	</head>
+	<body>
+		<h1>QMIN Encoder State Diagrammed</h1>
+
+		<p>
+		The <a href=https://tools.ietf.org/html/draft-tikhonov-quic-qmin-00>QMIN</a> encoder tracks stream and dynamic
+		table entry relationships using checkpoints.  A checkpoint is a way to address a range of dynamic table entries
+		and streams at the same time.  The diagrams below describe a high-level model of the encoder state.
+
+		<h2>Table of Contents</h2>
+		<ul>
+			<li><a href="#0">First header block is encoded</a>
+			<li><a href="#1">Second header block is encoded</a>
+			<li><a href="#2">Five header blocks encoded</a>
+			<li><a href="#3">Third flush is acked</a>
+			<li><a href="#4">Long-Lived Stream 11</a>
+			<li><a href="#5">Marked for death</a>
+			<li><a href="#6">Dropping DEAD checkpoints</a>
+			<li><a href="#7">Another header block encoded</a>
+			<li><a href="#8">Flush</a>
+			<li><a href="#9">Implementation Notes</a>
+		</ul>
+
+
+		<a id="0"></a>
+		<h2>First header block is encoded</h2>
+		<p>
+		We will start with the encoder shortly after it began operating.  Header block for <i>Stream 5</i> has been
+		encoded, with the following header fields, in order:
+		<ul>
+			<li><tt>X-Some-Header: 123</tt>
+			<li><tt>X-Another-Header: 234</tt>
+			<li><tt>X-Secret: passw0rd</tt>
+			<li><tt>X-begin: false</tt>
+		</ul>
+		Note that a checkpoint flush occurred after the third header field was encoded.
+		<p><img border=1 src=encoder-state-0.png>
+
+
+		<h2> <a id="1"></a> Second header block is encoded</h2>
+		<p>
+		The next diagram shows the encoder state after two more things have occurred, in order:
+		<ol>
+			<li>Checkpoint flush has been acknowledged, making entries 62, 63, and 64 available for encoding; and
+			<li>Header block for <i>Stream 7</i> has been encoded:
+			<ul>
+				<li><tt>X-Some-Header: 123</tt>	(indexed representation using entry 62)
+				<li><tt>X-Another-Header: 234</tt> (indexed representation using entry 62)
+				<li><tt>X-begin: false</tt> (new entry 65)
+			</ul>
+		</ol>
+		<p><img border=1 src=encoder-state-1.png>
+
+
+
+		<h2> <a id="2"></a> Five header blocks encoded</h2>
+		<p>
+		In this diagram, we are skipping ahead: five header blocks have been encoded, three flushes
+		have been issued, of which two have been acked.  We can see that
+		<ul>
+			<li>Entries 62, 63, 64, and 65 are available for encoding, while entries 66, 67, and 68 cannot.
+			<li>The PENDING checkpoint references entries 66 and 67, which should become available for encoding
+			 	when the flush is acked.
+		</ul>
+		<p><img border=1 src=encoder-state-2.png>
+
+
+
+		<h2> <a id="3"></a> Third flush is ACKed</h2>
+		<p>
+		Since the previous state, two first streams, <i>Stream 5</i> and <i>Stream 7</i>, have been closed, and the
+		flush has been acknowledged.  Note that entries 66 and 67 are now available for encoding.
+		<p>
+		There are three LIVE checkpoints, each referenced by at least one stream.  They cannot be
+		marked DEAD yet.
+		<p><img border=1 src=encoder-state-3.png>
+
+
+
+		<h2> <a id="4"></a> Long-Lived Stream 11</h2>
+		<p>
+		It turns out that <i>Stream 11</i> is going to live for a long time.  While it is uploading 7 TB of data,
+		<i>Stream 9</i> and <i>Stream 13</i> have finished.  One of the LIVE checkpoints is no longer referenced
+		by any streams.
+		<p><img border=1 src=encoder-state-4.png>
+
+
+
+		<h2> <a id="5"></a> Marked for death</h2>
+		<p>
+		The encoder can use <a href=https://tools.ietf.org/html/draft-tikhonov-quic-qmin-00#section-9.1>a number of strategies</a>
+		to decide when to declare a checkpoint DEAD.  Just because a LIVE checkpoint is not referenced by any streams does not mean
+		that it should be declared DEAD: the entries it references may repeat again and so, unless there is memory pressure, the
+		encoder should keep its checkpoints LIVE.  Nevertheless, here, for illustration purposes, we declare a LIVE checkpoint
+		DEAD.
+		<p>
+		Note how entry 65 is no longer available for encoding, as the victim checkpoint was the only one referencing it.
+		<p><img border=1 src=encoder-state-5.png>
+
+
+
+		<h2> <a id="6"></a> Dropping DEAD checkpoints</h2>
+		<p>
+		Once a checkpoint has gone DEAD, there is no reason to keep it around -- it can be immediately dropped.
+		<p>
+		Because entry 65 is no longer referenced by any checkpoint, it is evicted and the slot 65 in the dynamic table
+		becomes available for reuse.
+		<p><img border=1 src=encoder-state-6.png>
+
+
+
+		<h2> <a id="7"></a> Another header block encoded</h2>
+		<p>
+		<i>Stream 15</i> is created and its header block encoded:
+		<ul>
+			<li><tt>X-Another-Header: 234</tt> (indexed representation, entry 63)
+			<li><tt>Another-Header: Dude!</tt> (new entry, use <a href=https://tools.ietf.org/html/draft-tikhonov-quic-qmin-00#section-4.1.1>smallest available</a> dynamic entry -- 65)
+		</ul>
+		<p><img border=1 src=encoder-state-7.png>
+
+
+
+		<h2> <a id="8"></a> Flush</h2>
+		<p>
+		Here, the encoder flushes again.
+		<p><img border=1 src=encoder-state-8.png>
+
+
+
+		<h2> <a id="9"></a> Implementation Notes</h2>
+		<p>
+		Note that <a href=https://github.com/litespeedtech/qmin/blob/master/src/qmin_enc.c>the proof-of-concept QMIN Encoder</a>
+		does not make objects for streams; nor does it maintain links from checkpoints to dynamic table entries or vice versa.
+		Instead, it uses bitmap-based lists of entry and stream IDs per checkpoint object.  This approach uses less memory and
+		is simple to implement.
+	</body>
+</html>
