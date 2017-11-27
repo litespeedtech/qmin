@@ -104,7 +104,7 @@
 
 		<h2> <a id="6"></a> Dropping DEAD checkpoints</h2>
 		<p>
-		Once a checkpoint has gone DEAD, there is no reason to keep it around -- it can be immediately dropped.
+		Once a DEAD checkpoint is not referenced by any streams, there is no reason to keep it around -- it can be immediately dropped.
 		<p>
 		Because entry 65 is no longer referenced by any checkpoint, it is evicted and the slot 65 in the dynamic table
 		becomes available for reuse.
@@ -125,7 +125,7 @@
 
 		<h2> <a id="8"></a> Flush</h2>
 		<p>
-		Here, the encoder flushes again.
+		Here, <i>Stream 11</i> has finished and the encoder flushes again.
 		<p><img border=1 src=encoder-state-8.png>
 
 
