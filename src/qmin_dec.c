@@ -29,8 +29,7 @@ struct dec_checkpoint
     TAILQ_ENTRY(dec_checkpoint)     dcp_next;
 
     /* IDs of entries added the the dynamic table when this dec_checkpoint
-     * was in DCS_NEW state and those referenced when the checkpoint is in
-     * DCS_LIVE state:
+     * was in DCS_NEW state.
      */
     struct id_list                  dcp_entry_ids;
 
