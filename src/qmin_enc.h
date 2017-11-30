@@ -35,9 +35,6 @@ char *
 qmin_enc_to_str (struct qmin_enc *, size_t *);
 
 int
-qmin_enc_maybe_flush (struct qmin_enc *);
-
-int
 qmin_enc_flush_acked (struct qmin_enc *);
 
 int
