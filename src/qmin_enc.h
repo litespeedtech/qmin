@@ -6,6 +6,9 @@
 #ifndef QMIN_ENC_H
 #define QMIN_ENC_H 1
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct qmin_enc;
 struct qmin_ctl_out;
@@ -45,5 +48,9 @@ qmin_enc_end_stream_headers (struct qmin_enc *);
  */
 ssize_t
 qmin_enc_cmds_in (struct qmin_enc *, const void *, size_t);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

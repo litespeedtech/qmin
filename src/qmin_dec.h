@@ -2,6 +2,10 @@
 #ifndef QMIN_DEC_H
 #define QMIN_DEC_H 1
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct qmin_dec;
 struct qmin_ctl_out;
 
@@ -29,5 +33,9 @@ qmin_dec_decode (struct qmin_dec *, const void *src, size_t src_sz,
 
 char *
 qmin_dec_to_str (struct qmin_dec *, size_t *size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -2,6 +2,10 @@
 #ifndef QMIN_COMMON_H
 #define QMIN_COMMON_H 1
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum qmin_side {
     /* Ordering is important: the values match the low bit in QUIC stream ID */
     QSIDE_SERVER,
@@ -74,5 +78,9 @@ struct qmin_ctl_out
 #define QMIN_DYNAMIC_ENTRY_OVERHEAD 36
 
 #define QMIN_CKPOINT_OVERHEAD 128
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
