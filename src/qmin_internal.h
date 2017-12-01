@@ -37,4 +37,8 @@ enum dec_st
 qmin_decode_int (const unsigned char **src, const unsigned char *src_end,
                  unsigned prefix_bits, unsigned *value);
 
+unsigned char *
+qmin_encode_int (unsigned char *dst, unsigned char *const end,
+                 uint32_t value, uint8_t prefix_bits);
+
 #endif

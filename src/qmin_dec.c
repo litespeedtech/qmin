@@ -344,6 +344,22 @@ qmin_dec_flush (struct qmin_dec *dec)
 }
 
 
+int
+qmin_dec_stream_done (struct qmin_dec *dec, unsigned stream_id)
+{
+    unsigned char *end, cmd_buf[10];
+
+    cmd_buf[0] = QMM_STREAM_DONE;
+    end = qmin_encode_int(cmd_buf, cmd_buf + sizeof(cmd_buf), stream_id, 4);
+    if (end <= cmd_buf)
+        return -1;
+
+    dec->qmd_ctl_out->qco_write(dec->qmd_ctl_out->qco_ctx, cmd_buf,
+                                end - cmd_buf);
+    return 0;
+}
+
+
 static void
 dump_checkpoint_state (struct dec_checkpoint *ckpoint, FILE *out)
 {

@@ -723,40 +723,6 @@ qmin_enc_find_entry (struct qmin_enc *enc, const char *name,
 }
 
 
-////https://tools.ietf.org/html/draft-ietf-httpbis-header-compression-12#section-5.1
-static unsigned char *
-qmin_enc_int (unsigned char *dst, unsigned char *const end, uint32_t value,
-                                                        uint8_t prefix_bits)
-{
-    unsigned char *const dst_orig = dst;
-
-    /* This function assumes that at least one byte is available */
-    assert(dst < end);
-    if (value < (uint32_t)(1 << prefix_bits) - 1)
-        *dst++ |= value;
-    else
-    {
-        *dst++ |= (1 << prefix_bits) - 1;
-        value -= (1 << prefix_bits) - 1;
-        while (value >= 128)
-        {
-            if (dst < end)
-            {
-                *dst++ = (0x80 | value);
-                value >>= 7;
-            }
-            else
-                return dst_orig;
-        }
-        if (dst < end)
-            *dst++ = value;
-        else
-            return dst_orig;
-    }
-    return dst;
-}
-
-
 static int
 qmin_huffman_enc (const unsigned char *src, const unsigned char *const src_end,
                                             unsigned char *dst, int dst_len)
@@ -851,7 +817,7 @@ qmin_enc_enc_str (unsigned char *const dst, size_t dst_len,
     /* The guess of one-byte size was incorrect.  Perform necessary
      * adjustments.
      */
-    p = qmin_enc_int(size_buf, size_buf + sizeof(size_buf), str_len, 7);
+    p = qmin_encode_int(size_buf, size_buf + sizeof(size_buf), str_len, 7);
     if (p == size_buf)
         return -1;
 
@@ -1020,7 +986,7 @@ send_duplicate_cmd (struct qmin_enc *enc, unsigned entry_id)
     unsigned char *end, cmd_buf[10];
 
     cmd_buf[0] = QMM_DUPLICATE;
-    end = qmin_enc_int(cmd_buf, cmd_buf + sizeof(cmd_buf), entry_id, 7);
+    end = qmin_encode_int(cmd_buf, cmd_buf + sizeof(cmd_buf), entry_id, 7);
     send_control_message(enc, cmd_buf, end - cmd_buf);
 }
 
@@ -1374,7 +1340,7 @@ qmin_enc_encode (struct qmin_enc *enc, unsigned stream_id, const char *name,
         if (esr.esr_val_matched)
         {
             *dst = 0x80;
-            dst = qmin_enc_int(dst, dst_end, esr.esr_entry_id, 7);
+            dst = qmin_encode_int(dst, dst_end, esr.esr_entry_id, 7);
             if (dst == dst_orig)
                 return QES_NOBUFS;
             if (0 != maybe_update_checkpoints(enc, actions, stream_id,
@@ -1387,7 +1353,7 @@ qmin_enc_encode (struct qmin_enc *enc, unsigned stream_id, const char *name,
         else
         {
             *dst = indexed_prefix_number[ix_type];
-            dst = qmin_enc_int(dst, dst_end, esr.esr_entry_id,
+            dst = qmin_encode_int(dst, dst_end, esr.esr_entry_id,
                                ix_type == QIT_YES ? 6 : 4);
             if (dst == dst_orig)
                 return QES_NOBUFS;
@@ -1464,7 +1430,7 @@ issue_drop_ckpoint_cmd (struct qmin_enc *enc, unsigned position)
     unsigned char *end, cmd_buf[10];
 
     cmd_buf[0] = QMM_DROP_CHKPOINT;
-    end = qmin_enc_int(cmd_buf, cmd_buf + sizeof(cmd_buf), position, 2);
+    end = qmin_encode_int(cmd_buf, cmd_buf + sizeof(cmd_buf), position, 2);
     if (end <= cmd_buf)
         return -1;
 

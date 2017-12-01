@@ -34,6 +34,10 @@ qmin_dec_decode (struct qmin_dec *, const void *src, size_t src_sz,
 char *
 qmin_dec_to_str (struct qmin_dec *, size_t *size);
 
+/* Helper function to put the stream-done message onto the control stream. */
+int
+qmin_dec_stream_done (struct qmin_dec *, unsigned stream_id);
+
 #ifdef __cplusplus
 }
 #endif

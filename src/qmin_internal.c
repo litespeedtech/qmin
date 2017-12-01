@@ -1,4 +1,5 @@
 /* Copyright (c) 2017 LiteSpeed Technologies Inc.  See LICENSE. */
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -5258,3 +5259,35 @@ qmin_decode_int (const unsigned char **src, const unsigned char *src_end,
 }
 
 
+////https://tools.ietf.org/html/draft-ietf-httpbis-header-compression-12#section-5.1
+unsigned char *
+qmin_encode_int (unsigned char *dst, unsigned char *const end,
+                 uint32_t value, uint8_t prefix_bits)
+{
+    unsigned char *const dst_orig = dst;
+
+    /* This function assumes that at least one byte is available */
+    assert(dst < end);
+    if (value < (uint32_t)(1 << prefix_bits) - 1)
+        *dst++ |= value;
+    else
+    {
+        *dst++ |= (1 << prefix_bits) - 1;
+        value -= (1 << prefix_bits) - 1;
+        while (value >= 128)
+        {
+            if (dst < end)
+            {
+                *dst++ = (0x80 | value);
+                value >>= 7;
+            }
+            else
+                return dst_orig;
+        }
+        if (dst < end)
+            *dst++ = value;
+        else
+            return dst_orig;
+    }
+    return dst;
+}
