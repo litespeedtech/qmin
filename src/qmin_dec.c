@@ -103,18 +103,23 @@ struct qmin_dec
     unsigned                        qmd_max_capacity;
 
     const struct qmin_ctl_out      *qmd_ctl_out;
+
+    const char                     *qmd_idstr;
 };
 
 
 #define TRACE(args...) do {                                     \
-    if (dec->qmd_flags & QMD_TRACE)                             \
-        fprintf(stderr, "DEC TRACE: " args), fflush(stderr);    \
+    if (dec->qmd_flags & QMD_TRACE) {                           \
+        fprintf(stderr, "DEC TRACE(%s): ", dec->qmd_idstr);     \
+        fprintf(stderr, args);                                  \
+        fflush(stderr);                                         \
+    }                                                           \
 } while (0)
 
 
 struct qmin_dec *
 qmin_dec_new (enum qmin_side side, unsigned max_capacity,
-              const struct qmin_ctl_out *ctl_out)
+              const struct qmin_ctl_out *ctl_out, const char *idstr)
 {
     struct qmin_dec *dec;
     struct dec_checkpoint *ckpoint;
@@ -137,6 +142,7 @@ qmin_dec_new (enum qmin_side side, unsigned max_capacity,
         return NULL;
     }
 
+    dec->qmd_idstr          = idstr ? idstr : "";
     dec->qmd_side           = side;
     dec->qmd_max_capacity   = max_capacity;
     dec->qmd_ctl_out        = ctl_out;

@@ -14,7 +14,8 @@ struct qmin_enc;
 struct qmin_ctl_out;
 
 struct qmin_enc *
-qmin_enc_new (enum qmin_side, unsigned capacity, const struct qmin_ctl_out *);
+qmin_enc_new (enum qmin_side, unsigned capacity, const struct qmin_ctl_out *,
+                    const char *);
 
 void
 qmin_enc_destroy (struct qmin_enc *);

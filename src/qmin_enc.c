@@ -168,6 +168,8 @@ struct qmin_enc
 
     const struct qmin_ctl_out  *qme_ctl_out;
 
+    const char                 *qme_idstr;
+
     unsigned                    qme_max_capacity;
 
     size_t                      qme_bytes_out,
@@ -177,8 +179,11 @@ struct qmin_enc
 };
 
 #define TRACE(args...) do {                                     \
-    if (enc->qme_flags & QME_TRACE)                             \
-        fprintf(stderr, "ENC TRACE: " args), fflush(stderr);    \
+    if (enc->qme_flags & QME_TRACE) {                           \
+        fprintf(stderr, "ENC TRACE(%s): ", enc->qme_idstr);     \
+        fprintf(stderr, args);                                  \
+        fflush(stderr);                                         \
+    }                                                           \
 } while (0)
 
 struct double_enc_head
@@ -211,7 +216,7 @@ struct enc_table_entry
 
 struct qmin_enc *
 qmin_enc_new (enum qmin_side side, unsigned max_capacity,
-              const struct qmin_ctl_out *ctl_out)
+              const struct qmin_ctl_out *ctl_out, const char *idstr)
 {
     struct qmin_enc *enc;
     struct enc_checkpoint *enc_checkpoint;
@@ -252,6 +257,7 @@ qmin_enc_new (enum qmin_side side, unsigned max_capacity,
     }
 
     memset(enc, 0, sizeof(*enc));
+    enc->qme_idstr        = idstr ? idstr : "";
     enc->qme_side         = side;
     enc->qme_ctl_out      = ctl_out;
     enc->qme_max_capacity = max_capacity;

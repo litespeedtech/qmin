@@ -400,8 +400,8 @@ main (int argc, char **argv)
         }
     }
 
-    enc = qmin_enc_new(QSIDE_CLIENT, max_capacity, &enc_ctl_out);
-    dec = qmin_dec_new(QSIDE_SERVER, max_capacity, &dec_ctl_out);
+    enc = qmin_enc_new(QSIDE_CLIENT, max_capacity, &enc_ctl_out, NULL);
+    dec = qmin_dec_new(QSIDE_SERVER, max_capacity, &dec_ctl_out, NULL);
 
     stream = open_stream();
     stream_add_header(stream, "some-header", "some-value");
