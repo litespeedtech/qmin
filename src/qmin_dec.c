@@ -106,9 +106,9 @@ struct qmin_dec
 };
 
 
-#define TRACE(args...) do {                         \
-    if (dec->qmd_flags & QMD_TRACE)                 \
-        printf("DEC TRACE: " args), fflush(stdout); \
+#define TRACE(args...) do {                                     \
+    if (dec->qmd_flags & QMD_TRACE)                             \
+        fprintf(stderr, "DEC TRACE: " args), fflush(stderr);    \
 } while (0)
 
 

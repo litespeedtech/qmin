@@ -176,9 +176,9 @@ struct qmin_enc
     struct enc_hist             qme_enc_hist;
 };
 
-#define TRACE(args...) do {                         \
-    if (enc->qme_flags & QME_TRACE)                 \
-        printf("ENC TRACE: " args), fflush(stdout); \
+#define TRACE(args...) do {                                     \
+    if (enc->qme_flags & QME_TRACE)                             \
+        fprintf(stderr, "ENC TRACE: " args), fflush(stderr);    \
 } while (0)
 
 struct double_enc_head
