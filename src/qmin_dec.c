@@ -916,7 +916,7 @@ qmin_dec_decode (struct qmin_dec *dec, const void *void_src, size_t src_sz,
                     return -1;
                 *val_len = qmin_stx_tab[index - 1].val_len;
                 memcpy(name + *name_len, qmin_stx_tab[index - 1].val, *val_len);
-                return 1;
+                return src - (unsigned char *) void_src;
             }
         }
         else
@@ -935,7 +935,7 @@ qmin_dec_decode (struct qmin_dec *dec, const void *void_src, size_t src_sz,
                     return -1;
                 *val_len = entry->dte_val_len;
                 memcpy(name + *name_len, DTE_VALUE(entry), *val_len);
-                return 1;
+                return src - (unsigned char *) void_src;
             }
         }
     }
