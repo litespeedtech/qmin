@@ -645,13 +645,29 @@ djb2 (unsigned hash, const void *data, size_t sz)
 }
 
 
+enum
+{
+    FIBIT_LIVE,
+    FIBIT_PENDING,
+    FIBIT_NEW,
+};
+
+
+enum found_in
+{
+    FI_LIVE     = 1 << FIBIT_LIVE,
+    FI_PENDING  = 1 << FIBIT_PENDING,
+    FI_NEW      = 1 << FIBIT_NEW,
+};
+
+
 struct entry_search_result {
     unsigned    esr_entry_id;       /* If 0, entry is not found */
     unsigned    esr_name_hash,
                 esr_nameval_hash;
     bool        esr_val_matched;
-    bool        esr_live;           /* Entry is referenced by a LIVE enc_checkpoint */
-    bool        esr_new;            /* Entry is referenced by the NEW enc_checkpoint */
+    enum found_in
+                esr_found_in;
 };
 
 
@@ -660,9 +676,14 @@ qmin_enc_find_entry (struct qmin_enc *enc, const char *name,
                      unsigned name_len, const char *value, unsigned value_len)
 {
     struct enc_checkpoint *const new_ckpoint = TAILQ_FIRST(&enc->qme_checkpoints);
+    struct enc_checkpoint *pend_ckpoint;
     struct enc_table_entry *entry;
     struct entry_search_result r;
     unsigned buckno;
+
+    pend_ckpoint = TAILQ_NEXT(new_ckpoint, ecp_next);
+    if (pend_ckpoint && pend_ckpoint->ecp_state != ECS_PENDING)
+        pend_ckpoint = NULL;
 
     memset(&r, 0, sizeof(r));
 
@@ -671,7 +692,7 @@ qmin_enc_find_entry (struct qmin_enc *enc, const char *name,
                                              value_len, &r.esr_val_matched);
     if (r.esr_entry_id > 0 && r.esr_val_matched)
     {
-        r.esr_live = true;
+        r.esr_found_in = FI_LIVE;
         return r;
     }
 
@@ -688,13 +709,19 @@ qmin_enc_find_entry (struct qmin_enc *enc, const char *name,
             && 0 == memcmp(name, ETE_NAME(entry), name_len)
             && 0 == memcmp(value, ETE_VALUE(entry), value_len)
             && (entry->ete_live_refcnt > 0
+                || (pend_ckpoint &&
+                    id_list_exists(&pend_ckpoint->ecp_entry_ids, entry->ete_id))
                 || id_list_exists(&new_ckpoint->ecp_entry_ids, entry->ete_id)))
         {
             r.esr_entry_id    = entry->ete_id;
             r.esr_val_matched = true;
-            r.esr_live        = entry->ete_live_refcnt > 0;
-            r.esr_new         = id_list_exists(&new_ckpoint->ecp_entry_ids,
-                                               entry->ete_id);
+            r.esr_found_in =
+                ((entry->ete_live_refcnt > 0) << FIBIT_LIVE)
+                |
+                ((pend_ckpoint &&
+                    id_list_exists(&pend_ckpoint->ecp_entry_ids, entry->ete_id)) << FIBIT_PENDING)
+                |
+                (id_list_exists(&new_ckpoint->ecp_entry_ids, entry->ete_id) << FIBIT_NEW);
             return r;
         }
 
@@ -703,7 +730,7 @@ qmin_enc_find_entry (struct qmin_enc *enc, const char *name,
      */
     if (r.esr_entry_id > 0)
     {
-        r.esr_live = true;
+        r.esr_found_in = FI_LIVE;
         return r;
     }
 
@@ -714,13 +741,19 @@ qmin_enc_find_entry (struct qmin_enc *enc, const char *name,
             && name_len == entry->ete_name_len
             && 0 == memcmp(name, ETE_NAME(entry), name_len)
             && (entry->ete_live_refcnt > 0
+                || (pend_ckpoint &&
+                    id_list_exists(&pend_ckpoint->ecp_entry_ids, entry->ete_id))
                 || id_list_exists(&new_ckpoint->ecp_entry_ids, entry->ete_id)))
         {
             r.esr_entry_id    = entry->ete_id;
             r.esr_val_matched = false;
-            r.esr_live        = entry->ete_live_refcnt > 0;
-            r.esr_new         = id_list_exists(&new_ckpoint->ecp_entry_ids,
-                                               entry->ete_id);
+            r.esr_found_in =
+                ((entry->ete_live_refcnt > 0) << FIBIT_LIVE)
+                |
+                ((pend_ckpoint &&
+                    id_list_exists(&pend_ckpoint->ecp_entry_ids, entry->ete_id)) << FIBIT_PENDING)
+                |
+                (id_list_exists(&new_ckpoint->ecp_entry_ids, entry->ete_id) << FIBIT_NEW);
             return r;
         }
 
@@ -1128,9 +1161,25 @@ enum enc_action
 enum entry_status
 {
     ES_ENTRY_NOT_FOUND,
-    ES_ENTRY_FOUND_LIVE,
-    ES_ENTRY_FOUND_NEW,
-    ES_ENTRY_FOUND_BOTH,
+    ES_ENTRY_FOUND_LIVE_ONLY,
+    ES_ENTRY_FOUND_NEW_ONLY,
+    ES_ENTRY_FOUND_PEND_ONLY,
+    ES_ENTRY_FOUND_LIVE_AND_NEW,
+    ES_ENTRY_FOUND_LIVE_AND_PEND,
+};
+
+
+/* Even though there are eight possibilities, the actions are fewer than that: */
+static const enum entry_status fi2es[] =
+{
+    [   0           | 0             | 0         ] = ES_ENTRY_NOT_FOUND,
+    [   0           | 0             | FI_NEW    ] = ES_ENTRY_FOUND_NEW_ONLY,
+    [   0           | FI_PENDING    | 0         ] = ES_ENTRY_FOUND_PEND_ONLY,
+    [   0           | FI_PENDING    | FI_NEW    ] = ES_ENTRY_FOUND_NEW_ONLY,
+    [   FI_LIVE     | 0             | 0         ] = ES_ENTRY_FOUND_LIVE_ONLY,
+    [   FI_LIVE     | 0             | FI_NEW    ] = ES_ENTRY_FOUND_LIVE_AND_NEW,
+    [   FI_LIVE     | FI_PENDING    | 0         ] = ES_ENTRY_FOUND_LIVE_AND_PEND,
+    [   FI_LIVE     | FI_PENDING    | FI_NEW    ] = ES_ENTRY_FOUND_LIVE_AND_NEW,
 };
 
 
@@ -1138,45 +1187,72 @@ enum entry_status
  * Assuming ix_type is QIT_YES:
  *
  *                                     ,---------- Header field seen before
- *                                     |   ,------ Entry: not found, found live,
- *                                     |  |               found new, found both.
+ *                                     |   ,------ Entry found in
  *                                     |  |  ,---- Header value matched
  *                                     |  |  |  ,- Found static entry
  *                                     |  |  |  |
  *                                     |  |  |  |                             */
-static const enum enc_action g_actions[2][4][2][2] = {
-    [0][ES_ENTRY_NOT_FOUND ][0][0] = EA_NOOP,
-    [0][ES_ENTRY_NOT_FOUND ][0][1] = 0,
-    [0][ES_ENTRY_NOT_FOUND ][1][0] = 0,
-    [0][ES_ENTRY_NOT_FOUND ][1][1] = 0,
-    [0][ES_ENTRY_FOUND_LIVE][0][0] = EA_USE_FOUND_ENTRY | EA_DUPLICATE_ENTRY | EA_LINK_HEADER_NEW_CK | EA_UPDATE_LIVE_CK,
-    [0][ES_ENTRY_FOUND_LIVE][0][1] = EA_USE_FOUND_ENTRY,
-    [0][ES_ENTRY_FOUND_LIVE][1][0] = EA_USE_FOUND_ENTRY | EA_DUPLICATE_ENTRY | EA_LINK_HEADER_NEW_CK | EA_UPDATE_LIVE_CK,
-    [0][ES_ENTRY_FOUND_LIVE][1][1] = EA_USE_FOUND_ENTRY,
-    [0][ES_ENTRY_FOUND_NEW ][0][0] = EA_NOOP,
-    [0][ES_ENTRY_FOUND_NEW ][0][1] = 0, /* Static entries do not exist in new checkpoints */
-    [0][ES_ENTRY_FOUND_NEW ][1][0] = 0, /* If haven't seen, how can it be found? */  /* XXX */
-    [0][ES_ENTRY_FOUND_NEW ][1][1] = 0, /* Static entries do not exist in new checkpoints */
-    [0][ES_ENTRY_FOUND_BOTH][0][0] = EA_USE_FOUND_ENTRY | EA_UPDATE_LIVE_CK | EA_LINK_HEADER_NEW_CK,
-    [0][ES_ENTRY_FOUND_BOTH][0][1] = 0, /* Static entries do not exist in new checkpoints */
-    [0][ES_ENTRY_FOUND_BOTH][1][0] = 0, /* If haven't seen, how can it be found? */
-    [0][ES_ENTRY_FOUND_BOTH][1][1] = 0, /* Static entries do not exist in new checkpoints */
-    [1][ES_ENTRY_NOT_FOUND ][0][0] = EA_INSERT_ENTRY | EA_LINK_HEADER_NEW_CK,
-    [1][ES_ENTRY_NOT_FOUND ][0][1] = 0,
-    [1][ES_ENTRY_NOT_FOUND ][1][0] = 0,
-    [1][ES_ENTRY_NOT_FOUND ][1][1] = 0,
-    [1][ES_ENTRY_FOUND_LIVE][0][0] = EA_USE_FOUND_ENTRY | EA_INSERT_ENTRY | EA_DUPLICATE_ENTRY | EA_UPDATE_LIVE_CK | EA_LINK_HEADER_NEW_CK,
-    [1][ES_ENTRY_FOUND_LIVE][0][1] = EA_USE_FOUND_ENTRY | EA_INSERT_ENTRY | EA_LINK_HEADER_NEW_CK,
-    [1][ES_ENTRY_FOUND_LIVE][1][0] = EA_USE_FOUND_ENTRY | EA_DUPLICATE_ENTRY | EA_UPDATE_LIVE_CK | EA_LINK_HEADER_NEW_CK,
-    [1][ES_ENTRY_FOUND_LIVE][1][1] = EA_USE_FOUND_ENTRY,
-    [1][ES_ENTRY_FOUND_NEW ][0][0] = EA_LINK_HEADER_NEW_CK,
-    [1][ES_ENTRY_FOUND_NEW ][0][1] = 0, /* Static entries do not exist in new checkpoints */
-    [1][ES_ENTRY_FOUND_NEW ][1][0] = EA_LINK_HEADER_NEW_CK,
-    [1][ES_ENTRY_FOUND_NEW ][1][1] = 0, /* Static entries do not exist in new checkpoints */
-    [1][ES_ENTRY_FOUND_BOTH][0][0] = EA_USE_FOUND_ENTRY | EA_INSERT_ENTRY | EA_UPDATE_LIVE_CK,
-    [1][ES_ENTRY_FOUND_BOTH][0][1] = 0, /* Static entries do not exist in new checkpoints */
-    [1][ES_ENTRY_FOUND_BOTH][1][0] = EA_USE_FOUND_ENTRY | EA_UPDATE_LIVE_CK,
-    [1][ES_ENTRY_FOUND_BOTH][1][1] = 0, /* Static entries do not exist in new checkpoints */
+static const enum enc_action g_actions[2][6][2][2] = {
+/*   ,---------- Header field seen before
+ *   |   ,------ Entry found in
+ *   |  |                             ,---- Header value matched
+ *   |  |                             |  ,- Found static entry
+ *   |  |                             |  |
+ *   |  |                             |  |                             */
+    [0][ES_ENTRY_NOT_FOUND ]         [0][0] = EA_NOOP,
+    [0][ES_ENTRY_NOT_FOUND ]         [0][1] = 0,
+    [0][ES_ENTRY_NOT_FOUND ]         [1][0] = 0,
+    [0][ES_ENTRY_NOT_FOUND ]         [1][1] = 0,
+    [0][ES_ENTRY_FOUND_LIVE_ONLY]    [0][0] = EA_USE_FOUND_ENTRY | EA_DUPLICATE_ENTRY | EA_LINK_HEADER_NEW_CK | EA_UPDATE_LIVE_CK,
+    [0][ES_ENTRY_FOUND_LIVE_ONLY]    [0][1] = EA_USE_FOUND_ENTRY,
+    [0][ES_ENTRY_FOUND_LIVE_ONLY]    [1][0] = EA_USE_FOUND_ENTRY | EA_DUPLICATE_ENTRY | EA_LINK_HEADER_NEW_CK | EA_UPDATE_LIVE_CK,
+    [0][ES_ENTRY_FOUND_LIVE_ONLY]    [1][1] = EA_USE_FOUND_ENTRY,
+    [0][ES_ENTRY_FOUND_PEND_ONLY ]   [0][0] = EA_NOOP,
+    [0][ES_ENTRY_FOUND_PEND_ONLY ]   [0][1] = 0, /* Static entries do not exist in pending checkpoints */
+    [0][ES_ENTRY_FOUND_PEND_ONLY ]   [1][0] = 0, /* If haven't seen, how can it be found? */  /* XXX */
+    [0][ES_ENTRY_FOUND_PEND_ONLY ]   [1][1] = 0, /* Static entries do not exist in pending checkpoints */
+    [0][ES_ENTRY_FOUND_NEW_ONLY ]    [0][0] = EA_NOOP,
+    [0][ES_ENTRY_FOUND_NEW_ONLY ]    [0][1] = 0, /* Static entries do not exist in new checkpoints */
+    [0][ES_ENTRY_FOUND_NEW_ONLY ]    [1][0] = 0, /* If haven't seen, how can it be found? */  /* XXX */
+    [0][ES_ENTRY_FOUND_NEW_ONLY ]    [1][1] = 0, /* Static entries do not exist in new checkpoints */
+    [0][ES_ENTRY_FOUND_LIVE_AND_PEND][0][0] = EA_USE_FOUND_ENTRY | EA_UPDATE_LIVE_CK | EA_LINK_HEADER_NEW_CK | EA_DUPLICATE_ENTRY,
+    [0][ES_ENTRY_FOUND_LIVE_AND_PEND][0][1] = 0, /* Static entries do not exist in pending checkpoints */
+    [0][ES_ENTRY_FOUND_LIVE_AND_PEND][1][0] = 0, /* If haven't seen, how can it be found? */
+    [0][ES_ENTRY_FOUND_LIVE_AND_PEND][1][1] = 0, /* Static entries do not exist in pending checkpoints */
+    [0][ES_ENTRY_FOUND_LIVE_AND_NEW] [0][0] = EA_USE_FOUND_ENTRY | EA_UPDATE_LIVE_CK | EA_LINK_HEADER_NEW_CK,
+    [0][ES_ENTRY_FOUND_LIVE_AND_NEW] [0][1] = 0, /* Static entries do not exist in new checkpoints */
+    [0][ES_ENTRY_FOUND_LIVE_AND_NEW] [1][0] = 0, /* If haven't seen, how can it be found? */
+    [0][ES_ENTRY_FOUND_LIVE_AND_NEW] [1][1] = 0, /* Static entries do not exist in new checkpoints */
+/*   ,---------- Header field seen before
+ *   |   ,------ Entry found in
+ *   |  |                             ,---- Header value matched
+ *   |  |                             |  ,- Found static entry
+ *   |  |                             |  |
+ *   |  |                             |  |                             */
+    [1][ES_ENTRY_NOT_FOUND ]         [0][0] = EA_INSERT_ENTRY | EA_LINK_HEADER_NEW_CK,
+    [1][ES_ENTRY_NOT_FOUND ]         [0][1] = 0,
+    [1][ES_ENTRY_NOT_FOUND ]         [1][0] = 0,
+    [1][ES_ENTRY_NOT_FOUND ]         [1][1] = 0,
+    [1][ES_ENTRY_FOUND_LIVE_ONLY]    [0][0] = EA_USE_FOUND_ENTRY | EA_INSERT_ENTRY | EA_DUPLICATE_ENTRY | EA_UPDATE_LIVE_CK | EA_LINK_HEADER_NEW_CK,
+    [1][ES_ENTRY_FOUND_LIVE_ONLY]    [0][1] = EA_USE_FOUND_ENTRY | EA_INSERT_ENTRY | EA_LINK_HEADER_NEW_CK,
+    [1][ES_ENTRY_FOUND_LIVE_ONLY]    [1][0] = EA_USE_FOUND_ENTRY | EA_DUPLICATE_ENTRY | EA_UPDATE_LIVE_CK | EA_LINK_HEADER_NEW_CK,
+    [1][ES_ENTRY_FOUND_LIVE_ONLY]    [1][1] = EA_USE_FOUND_ENTRY,
+    [1][ES_ENTRY_FOUND_NEW_ONLY ]    [0][0] = EA_LINK_HEADER_NEW_CK,
+    [1][ES_ENTRY_FOUND_NEW_ONLY ]    [0][1] = 0, /* Static entries do not exist in new checkpoints */
+    [1][ES_ENTRY_FOUND_NEW_ONLY ]    [1][0] = EA_LINK_HEADER_NEW_CK,
+    [1][ES_ENTRY_FOUND_NEW_ONLY ]    [1][1] = 0, /* Static entries do not exist in new checkpoints */
+    [1][ES_ENTRY_FOUND_PEND_ONLY ]   [0][0] = EA_LINK_HEADER_NEW_CK | EA_DUPLICATE_ENTRY | EA_INSERT_ENTRY,
+    [1][ES_ENTRY_FOUND_PEND_ONLY ]   [0][1] = 0, /* Static entries do not exist in pending checkpoints */
+    [1][ES_ENTRY_FOUND_PEND_ONLY ]   [1][0] = EA_LINK_HEADER_NEW_CK | EA_DUPLICATE_ENTRY,
+    [1][ES_ENTRY_FOUND_PEND_ONLY ]   [1][1] = 0, /* Static entries do not exist in pending checkpoints */
+    [1][ES_ENTRY_FOUND_LIVE_AND_NEW] [0][0] = EA_USE_FOUND_ENTRY | EA_INSERT_ENTRY | EA_UPDATE_LIVE_CK,
+    [1][ES_ENTRY_FOUND_LIVE_AND_NEW] [0][1] = 0, /* Static entries do not exist in new checkpoints */
+    [1][ES_ENTRY_FOUND_LIVE_AND_NEW] [1][0] = EA_USE_FOUND_ENTRY | EA_UPDATE_LIVE_CK,
+    [1][ES_ENTRY_FOUND_LIVE_AND_NEW] [1][1] = 0, /* Static entries do not exist in new checkpoints */
+    [1][ES_ENTRY_FOUND_LIVE_AND_PEND][0][0] = EA_USE_FOUND_ENTRY | EA_INSERT_ENTRY | EA_UPDATE_LIVE_CK | EA_DUPLICATE_ENTRY | EA_LINK_HEADER_NEW_CK,
+    [1][ES_ENTRY_FOUND_LIVE_AND_PEND][0][1] = 0, /* Static entries do not exist in new checkpoints */
+    [1][ES_ENTRY_FOUND_LIVE_AND_PEND][1][0] = EA_USE_FOUND_ENTRY | EA_UPDATE_LIVE_CK | EA_LINK_HEADER_NEW_CK | EA_DUPLICATE_ENTRY,
+    [1][ES_ENTRY_FOUND_LIVE_AND_PEND][1][1] = 0, /* Static entries do not exist in new checkpoints */
 };
 
 
@@ -1289,19 +1365,7 @@ qmin_enc_encode (struct qmin_enc *enc, unsigned stream_id, const char *name,
 
         eha_st = enc_hist_add(&enc->qme_enc_hist, esr.esr_nameval_hash);
 
-        if (esr.esr_entry_id)
-        {
-            if (esr.esr_live && esr.esr_new)
-                est = ES_ENTRY_FOUND_BOTH;
-            else if (esr.esr_live)
-                est = ES_ENTRY_FOUND_LIVE;
-            else if (esr.esr_new)
-                est = ES_ENTRY_FOUND_NEW;
-            else
-                assert(0);
-        }
-        else
-            est = ES_ENTRY_NOT_FOUND;
+        est = fi2es[ esr.esr_found_in ];
 
         actions = g_actions
             [eha_st == EHA_EXISTS]
