@@ -333,7 +333,7 @@ main (int argc, char **argv)
     char *state = qmin_enc_to_str(enc, &size);              \
     if (state)                                              \
     {                                                       \
-        fwrite(state, 1, size, stdout);                     \
+        fwrite(state, 1, size, stderr);                     \
         free(state);                                        \
     }                                                       \
     else                                                    \
@@ -341,7 +341,7 @@ main (int argc, char **argv)
     state = qmin_dec_to_str(dec, &size);                    \
     if (state)                                              \
     {                                                       \
-        fwrite(state, 1, size, stdout);                     \
+        fwrite(state, 1, size, stderr);                     \
         free(state);                                        \
     }                                                       \
     else                                                    \
