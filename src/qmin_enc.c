@@ -1325,6 +1325,19 @@ check_table_size_before_push (struct qmin_enc *enc, unsigned name_len,
 }
 
 
+static int
+always_insert (struct qmin_enc *enc, const char *name, unsigned name_len)
+{
+    if (QSIDE_CLIENT == enc->qme_side)
+        return (6  == name_len && 0 == memcmp(name, "cookie", 6))
+            || (10 == name_len && 0 == memcmp(name, "user-agent", 10))
+        ;
+    else
+        return 6  == name_len && 0 == memcmp(name, "server", 6)
+        ;
+}
+
+
 enum qmin_encode_status
 qmin_enc_encode (struct qmin_enc *enc, unsigned stream_id, const char *name,
     unsigned name_len,
@@ -1363,7 +1376,10 @@ qmin_enc_encode (struct qmin_enc *enc, unsigned stream_id, const char *name,
         enum entry_status est;
         enum enc_hist_add_st eha_st;
 
-        eha_st = enc_hist_add(&enc->qme_enc_hist, esr.esr_nameval_hash);
+        if (always_insert(enc, name, name_len))
+            eha_st = EHA_EXISTS;
+        else
+            eha_st = enc_hist_add(&enc->qme_enc_hist, esr.esr_nameval_hash);
 
         est = fi2es[ esr.esr_found_in ];
 
