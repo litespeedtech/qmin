@@ -146,7 +146,12 @@ struct qmin_enc
     }                           qme_closed_stream_ids[2];
 
     unsigned                    qme_max_opened_stream_id;
-    unsigned                    qme_streams_since_last_flush;
+
+    struct {
+        unsigned        n_streams,
+                        n_inserts,
+                        added_size;
+    }                           qme_stats;
 
     /* Dynamic table entries (struct enc_table_entry) live in two hash
      * tables: name/value hash table and name hash table.  These tables
@@ -157,6 +162,8 @@ struct qmin_enc
     unsigned                    qme_nbits;
 
     struct checkpoint_head      qme_checkpoints;
+    unsigned                    qme_n_ckpoints;
+    unsigned                    qme_n_live_ckpoints;
 
     /*
      * In addition, the dynamic table entries are in array.
@@ -271,6 +278,8 @@ qmin_enc_new (enum qmin_side side, unsigned max_capacity,
     id_list_init(&enc->qme_entry_ids, QMIN_STATIC_TABLE_N_ENTRIES + 1);
     TAILQ_INIT(&enc->qme_checkpoints);
     TAILQ_INSERT_HEAD(&enc->qme_checkpoints, enc_checkpoint, ecp_next);
+    enc->qme_n_ckpoints = 1;
+    enc->qme_n_live_ckpoints = 0;
 
     s = getenv("QMIN_ENC_TRACE");
     if (s && atoi(s))
@@ -1004,6 +1013,9 @@ qmin_enc_push_entry (struct qmin_enc *enc, unsigned stream_id, const char *name,
 
     ++enc->qme_nelem;
 
+    enc->qme_stats.n_inserts  += 1;
+    enc->qme_stats.added_size += QMIN_CKPOINT_OVERHEAD + name_len + value_len;
+
     return entry;
 }
 
@@ -1073,10 +1085,11 @@ flush (struct qmin_enc *enc)
         return -1;
 
     TRACE("performing flush...\n");
-    enc->qme_streams_since_last_flush = 0;
+    memset(&enc->qme_stats, 0, sizeof(enc->qme_stats));
 
     TAILQ_FIRST(&enc->qme_checkpoints)->ecp_state = ECS_PENDING;
     TAILQ_INSERT_HEAD(&enc->qme_checkpoints, ckpoint, ecp_next);
+    ++enc->qme_n_ckpoints;
 
     send_control_message(enc, flush_cmd, sizeof(flush_cmd));
     return 0;
@@ -1088,29 +1101,38 @@ maybe_flush (struct qmin_enc *enc)
 {
     const struct enc_checkpoint *new_ckpoint;
     size_t table_size;
+    int have_pending;
 
     new_ckpoint = TAILQ_FIRST(&enc->qme_checkpoints);
-    if (TAILQ_NEXT(new_ckpoint, ecp_next) &&
-        TAILQ_NEXT(new_ckpoint, ecp_next)->ecp_state == ECS_PENDING)
-    {
-        return 0;   /* Not flushable */
-    }
+    have_pending = TAILQ_NEXT(new_ckpoint, ecp_next)
+              && TAILQ_NEXT(new_ckpoint, ecp_next)->ecp_state == ECS_PENDING;
 
-    if (0 == id_list_count(&new_ckpoint->ecp_entry_ids))
-        return 0;   /* Nothing to flush */
+    TRACE("Stats: streams: %u, inserts: %u, size: %u; have pending: %d",
+        enc->qme_stats.n_streams, enc->qme_stats.n_inserts,
+        enc->qme_stats.added_size, have_pending);
+
+    if (have_pending)
+        return 0;
+
+    if (0 == enc->qme_stats.n_inserts)
+        return 0;
 
     table_size = qmin_enc_size(enc);
     if (table_size + checkpoint_size(enc) > enc->qme_max_capacity)
         return 0;   /* Not flushable */
 
-    if (enc->qme_streams_since_last_flush > 0
-        && table_size < enc->qme_max_capacity / 2)
+    if (enc->qme_n_live_ckpoints == 0)
     {
-        return flush(enc);
+        if (enc->qme_stats.added_size > 500)
+            return flush(enc);
+        if (enc->qme_stats.n_streams >= 10)
+            return flush(enc);
     }
-
-    if (enc->qme_streams_since_last_flush >= 10)
-        return flush(enc);
+    else
+    {
+        if (enc->qme_stats.added_size > 200 || enc->qme_stats.n_streams > 0)
+            return flush(enc);
+    }
 
     return 0;
 }
@@ -1363,10 +1385,6 @@ qmin_enc_encode (struct qmin_enc *enc, unsigned stream_id, const char *name,
     if (dst_end <= dst)
         return QES_NOBUFS;
 
-    rc = maybe_flush(enc);
-    if (rc != 0)
-        return QES_ERR;
-
     enc->qme_bytes_in += name_len + value_len;
 
     esr = qmin_enc_find_entry(enc, name, name_len, value, value_len);
@@ -1574,6 +1592,7 @@ maybe_drop_checkpoints (struct qmin_enc *enc)
             TAILQ_REMOVE(&enc->qme_checkpoints, ckpoint, ecp_next);
             drop_unreferenced_entries(enc, ckpoint);
             enc_ckpoint_destroy(ckpoint);
+            --enc->qme_n_ckpoints;
             if (0 != issue_drop_ckpoint_cmd(enc, position))
                 return -1;
             TRACE("dropped checkpoint #%u\n", position);
@@ -1636,6 +1655,7 @@ declare_one_checkpoint_dead (struct qmin_enc *enc)
     {
         decref_live_ckpoint_entries(enc, victim);
         victim->ecp_state = ECS_DEAD;
+        --enc->qme_n_live_ckpoints;
     }
 }
 
@@ -1763,6 +1783,7 @@ qmin_enc_flush_acked (struct qmin_enc *enc)
         if (ckpoint->ecp_state == ECS_PENDING)
         {
             move_checkpoint_to_live(enc, ckpoint);
+            ++enc->qme_n_live_ckpoints;
             return maybe_flush(enc);
         }
 
@@ -1848,7 +1869,7 @@ int
 qmin_enc_end_stream_headers (struct qmin_enc *enc)
 {
     TRACE("called %s()\n", __func__);
-    ++enc->qme_streams_since_last_flush;
+    ++enc->qme_stats.n_streams;
     return maybe_flush(enc);
 }
 
