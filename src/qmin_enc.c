@@ -1411,17 +1411,17 @@ qmin_enc_encode (struct qmin_enc *enc, unsigned stream_id, const char *name,
     else
         actions = EA_NOOP;
 
+    if (actions & EA_DUPLICATE_ENTRY)
+    {
+        struct enc_checkpoint *ckpoint = TAILQ_FIRST(&enc->qme_checkpoints);
+        assert(!id_list_exists(&ckpoint->ecp_entry_ids, esr.esr_entry_id));
+        send_duplicate_cmd(enc, esr.esr_entry_id);
+        TRACE("duplicate entry %u\n", esr.esr_entry_id);
+    }
+
     if (actions & EA_USE_FOUND_ENTRY)
     {
         assert(esr.esr_entry_id > 0);
-
-        if (actions & EA_DUPLICATE_ENTRY)
-        {
-            struct enc_checkpoint *ckpoint = TAILQ_FIRST(&enc->qme_checkpoints);
-            assert(!id_list_exists(&ckpoint->ecp_entry_ids, esr.esr_entry_id));
-            send_duplicate_cmd(enc, esr.esr_entry_id);
-            TRACE("duplicate entry %u\n", esr.esr_entry_id);
-        }
 
         if (esr.esr_val_matched)
         {
