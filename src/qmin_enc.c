@@ -48,6 +48,11 @@ struct enc_checkpoint
     enum enc_checkpoint_state       ecp_state;
 };
 
+static int
+maybe_drop_checkpoints (struct qmin_enc *);
+
+static unsigned
+maybe_declare_dead_checkpoints (struct qmin_enc *);
 
 static struct enc_checkpoint *
 enc_ckpoint_new (unsigned min_stream_id_server, unsigned min_stream_id_client)
@@ -1107,34 +1112,38 @@ maybe_flush (struct qmin_enc *enc)
     have_pending = TAILQ_NEXT(new_ckpoint, ecp_next)
               && TAILQ_NEXT(new_ckpoint, ecp_next)->ecp_state == ECS_PENDING;
 
-    TRACE("Stats: streams: %u, inserts: %u, size: %u; have pending: %d",
+    TRACE("Stats: streams: %u, inserts: %u, size: %u; have pending: %d\n",
         enc->qme_stats.n_streams, enc->qme_stats.n_inserts,
         enc->qme_stats.added_size, have_pending);
-
-    if (have_pending)
-        return 0;
 
     if (0 == enc->qme_stats.n_inserts)
         return 0;
 
-    table_size = qmin_enc_size(enc);
-    if (table_size + checkpoint_size(enc) > enc->qme_max_capacity)
-        return 0;   /* Not flushable */
-
     if (enc->qme_n_live_ckpoints == 0)
     {
-        if (enc->qme_stats.added_size > 500)
-            return flush(enc);
-        if (enc->qme_stats.n_streams >= 10)
-            return flush(enc);
+        if (enc->qme_stats.added_size <= 500 && enc->qme_stats.n_streams > 10)
+            return 0;
     }
     else
     {
-        if (enc->qme_stats.added_size > 200 || enc->qme_stats.n_streams > 0)
-            return flush(enc);
+        if (enc->qme_stats.added_size <= 200 && enc->qme_stats.n_streams == 0)
+            return 0;
     }
 
-    return 0;
+    if (have_pending)
+    {
+        TRACE("cannot flush: already have a pending checkpoint\n");
+        return 0;
+    }
+
+    table_size = qmin_enc_size(enc);
+    if (table_size + checkpoint_size(enc) > enc->qme_max_capacity)
+    {
+        TRACE("cannot flush: memory limit");
+        return 0;
+    }
+
+    return flush(enc);
 }
 
 
@@ -1322,28 +1331,53 @@ maybe_update_checkpoints (struct qmin_enc *enc, enum enc_action actions,
 }
 
 
-/* Returns true if push is allowed.  Calling this function may trigger a
- * flush instead.  (See SPEC, Section 7.4).
+/* Returns 1 if push is allowed, 0 otherwise.  If error occurs, -1 is returned.
+ *
+ * Calling this function may trigger a flush instead.  (See SPEC, Section 7.4).
  */
-static bool
+static int
 check_table_size_before_push (struct qmin_enc *enc, unsigned name_len,
                               unsigned val_len)
 {
-    size_t table_size, entry_size;
+    size_t entry_size;
+    unsigned n_newly_dead;
+    int n_dropped;
 
-    table_size = qmin_enc_size(enc);
     entry_size = QMIN_DYNAMIC_ENTRY_OVERHEAD + name_len + val_len;
 
-    if (table_size + entry_size > enc->qme_max_capacity)
-        return false;
+    if (entry_size > enc->qme_max_capacity / 3 * 4)
+        return 0;
 
-    if (table_size + entry_size + checkpoint_size(enc) > enc->qme_max_capacity)
+    if (qmin_enc_size(enc) + entry_size + checkpoint_size(enc)
+                                                <= enc->qme_max_capacity)
+        return 1;
+
+    /* Try to free up some room.  First, drop any DEAD checkpoints. */
+    if (maybe_drop_checkpoints(enc) < 0)
+        return -1;
+
+    while (qmin_enc_size(enc) + entry_size + checkpoint_size(enc)
+                                                > enc->qme_max_capacity)
     {
-        maybe_flush(enc);
-        return false;
+        n_newly_dead = maybe_declare_dead_checkpoints(enc);
+        if (0 == n_newly_dead)
+            return 0;
+
+        n_dropped = maybe_drop_checkpoints(enc);
+        if (n_dropped < 0)
+            return -1;
+        if (n_dropped == 0)
+            return 0;
     }
 
-    return true;
+    if (qmin_enc_size(enc) + entry_size + checkpoint_size(enc)
+                                                > enc->qme_max_capacity)
+    {
+        maybe_flush(enc);
+        return 0;
+    }
+
+    return 1;
 }
 
 
@@ -1414,14 +1448,19 @@ qmin_enc_encode (struct qmin_enc *enc, unsigned stream_id, const char *name,
             return QES_ERR;
         }
 
-        if ((actions & EA_INSERT_ENTRY)
-            && !check_table_size_before_push(enc, name_len, value_len))
+        if (actions & EA_INSERT_ENTRY)
         {
-            /* Pretend we did not find anything.  This is a bit hacky and
-             * may indicate suboptimal code (or spec).
-             */
-            TRACE("up to memory limit: cannot push entry\n");
-            actions = EA_NOOP;
+            int c = check_table_size_before_push(enc, name_len, value_len);
+            if (c < 0)
+                return QES_ERR;
+            if (!c)
+            {
+                /* Pretend we did not find anything.  This is a bit hacky and
+                 * may indicate suboptimal code (or spec).
+                 */
+                TRACE("up to memory limit: cannot push entry\n");
+                actions = EA_NOOP;
+            }
         }
     }
     else if (esr.esr_entry_id > 0)
@@ -1579,8 +1618,10 @@ maybe_drop_checkpoints (struct qmin_enc *enc)
 {
     struct enc_checkpoint *ckpoint, *prev;
     unsigned position;
+    int count;
 
     position = 0;
+    count = 0;
     for (ckpoint = TAILQ_LAST(&enc->qme_checkpoints, checkpoint_head);
                                                         ckpoint; ckpoint = prev)
     {
@@ -1596,12 +1637,13 @@ maybe_drop_checkpoints (struct qmin_enc *enc)
             if (0 != issue_drop_ckpoint_cmd(enc, position))
                 return -1;
             TRACE("dropped checkpoint #%u\n", position);
+            ++count;
         }
         else
             ++position;
     }
 
-    return 0;
+    return count;
 }
 
 
@@ -1623,7 +1665,7 @@ decref_live_ckpoint_entries (struct qmin_enc *enc, struct enc_checkpoint *ckpoin
 }
 
 
-static void
+static unsigned
 declare_one_checkpoint_dead (struct qmin_enc *enc)
 {
     struct enc_checkpoint *ckpoint, *victim;
@@ -1637,7 +1679,7 @@ declare_one_checkpoint_dead (struct qmin_enc *enc)
     {
         /* For the PoC implementation, one dead enc_checkpoint is enough: */
         if (ckpoint->ecp_state == ECS_DEAD)
-            return;
+            return 0;
 
         if (ckpoint->ecp_state == ECS_LIVE)
         {
@@ -1657,13 +1699,8 @@ declare_one_checkpoint_dead (struct qmin_enc *enc)
         victim->ecp_state = ECS_DEAD;
         --enc->qme_n_live_ckpoints;
     }
-}
 
-
-static size_t
-low_mem_threshold (const struct qmin_enc *enc)
-{
-    return enc->qme_max_capacity * 3 / 4;
+    return 1;
 }
 
 
@@ -1688,18 +1725,16 @@ n_dead_checkpoints (const struct qmin_enc *enc)
 }
 
 
-static void
+static unsigned
 maybe_declare_dead_checkpoints (struct qmin_enc *enc)
 {
     size_t size;
 
     size = qmin_enc_size(enc);
-
-    if (size > high_mem_threshold(enc)
-        || (size > low_mem_threshold(enc) && n_dead_checkpoints(enc) == 0))
-    {
-        declare_one_checkpoint_dead(enc);
-    }
+    if (size > high_mem_threshold(enc) && n_dead_checkpoints(enc) == 0)
+        return declare_one_checkpoint_dead(enc);
+    else
+        return 0;
 }
 
 
@@ -1718,7 +1753,7 @@ process_newly_closed_stream (struct qmin_enc *enc, unsigned stream_id)
 
     maybe_declare_dead_checkpoints(enc);
 
-    if (0 != maybe_drop_checkpoints(enc))
+    if (maybe_drop_checkpoints(enc) < 0)
         return -1;
 
     return 0;
