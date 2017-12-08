@@ -77,7 +77,7 @@ struct qmin_ctl_out
 
 #define QMIN_DYNAMIC_ENTRY_OVERHEAD 36
 
-#define QMIN_CKPOINT_OVERHEAD 128
+#define QMIN_CKPOINT_OVERHEAD 64
 
 #ifdef __cplusplus
 }

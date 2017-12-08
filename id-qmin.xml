@@ -500,11 +500,11 @@ of a checkpoint, then, is defined as
 
           <figure>
             <artwork>
-    (Highest Index Value - 62) / 8 + 128
+    (Highest Index Value - 62) / 8 + 64
             </artwork>
           </figure>
 
-The additional 128 bytes is the checkpoint overhead.
+The additional 64 bytes is the checkpoint overhead.
 
         
         </t>
@@ -531,13 +531,12 @@ The same table in QMIN with 10 checkpoints is
 
           <figure>
             <artwork>
-    700 * 36 + 35,000 + 10 * ((1000 / 8) + 128) = 62,730 bytes.
+    700 * 36 + 35,000 + 10 * ((1000 / 8) + 64) = 62,090 bytes.
             </artwork>
           </figure>
 
-This is a 9% increase in memory consumption.
+This is a 8% increase in memory consumption.
 
-        
         </t>
       </section>
     </section>

@@ -4,8 +4,8 @@
 
 QUIC Working Group                                           D. Tikhonov
 Internet-Draft                                    LiteSpeed Technologies
-Intended status: Standards Track                       November 13, 2017
-Expires: May 17, 2018
+Intended status: Standards Track                           November 2017
+Expires: May 5, 2018
 
 
                    QMIN: Header Compression for QUIC
@@ -36,7 +36,7 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on May 17, 2018.
+   This Internet-Draft will expire on May 5, 2018.
 
 Copyright Notice
 
@@ -53,7 +53,7 @@ Copyright Notice
 
 
 
-Tikhonov                  Expires May 17, 2018                  [Page 1]
+Tikhonov                   Expires May 5, 2018                  [Page 1]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -109,7 +109,7 @@ Table of Contents
 
 
 
-Tikhonov                  Expires May 17, 2018                  [Page 2]
+Tikhonov                   Expires May 5, 2018                  [Page 2]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -165,7 +165,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 17, 2018                  [Page 3]
+Tikhonov                   Expires May 5, 2018                  [Page 3]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -221,7 +221,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 17, 2018                  [Page 4]
+Tikhonov                   Expires May 5, 2018                  [Page 4]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -277,7 +277,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 17, 2018                  [Page 5]
+Tikhonov                   Expires May 5, 2018                  [Page 5]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -333,7 +333,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 17, 2018                  [Page 6]
+Tikhonov                   Expires May 5, 2018                  [Page 6]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -389,7 +389,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 17, 2018                  [Page 7]
+Tikhonov                   Expires May 5, 2018                  [Page 7]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -445,7 +445,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 17, 2018                  [Page 8]
+Tikhonov                   Expires May 5, 2018                  [Page 8]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -501,7 +501,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 17, 2018                  [Page 9]
+Tikhonov                   Expires May 5, 2018                  [Page 9]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -551,13 +551,13 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    checkpoint can track indices via a bitmask: 1 bit per index.  The
    size of a checkpoint, then, is defined as
 
-       (Highest Index Value - 62) / 8 + 128
+       (Highest Index Value - 62) / 8 + 64
 
-   The additional 128 bytes is the checkpoint overhead.
+   The additional 64 bytes is the checkpoint overhead.
 
 
 
-Tikhonov                  Expires May 17, 2018                 [Page 10]
+Tikhonov                   Expires May 5, 2018                 [Page 10]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -577,9 +577,9 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
    The same table in QMIN with 10 checkpoints is
 
-       700 * 36 + 35,000 + 10 * ((1000 / 8) + 128) = 62,730 bytes.
+       700 * 36 + 35,000 + 10 * ((1000 / 8) + 64) = 62,090 bytes.
 
-   This is a 9% increase in memory consumption.
+   This is a 8% increase in memory consumption.
 
 7.  Encoding Process
 
@@ -613,7 +613,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 17, 2018                 [Page 11]
+Tikhonov                   Expires May 5, 2018                 [Page 11]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -669,7 +669,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 17, 2018                 [Page 12]
+Tikhonov                   Expires May 5, 2018                 [Page 12]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -725,7 +725,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 17, 2018                 [Page 13]
+Tikhonov                   Expires May 5, 2018                 [Page 13]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -781,7 +781,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 17, 2018                 [Page 14]
+Tikhonov                   Expires May 5, 2018                 [Page 14]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -837,7 +837,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
 
 
-Tikhonov                  Expires May 17, 2018                 [Page 15]
+Tikhonov                   Expires May 5, 2018                 [Page 15]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
@@ -893,4 +893,4 @@ Author's Address
 
 
 
-Tikhonov                  Expires May 17, 2018                 [Page 16]
+Tikhonov                   Expires May 5, 2018                 [Page 16]
