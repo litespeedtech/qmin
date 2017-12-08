@@ -478,8 +478,8 @@ another element -- reference count -- which increases the entry size.
       </t>
       <t>
 QMIN introduces checkpoints, whose size should also be accounted for.
-A decoder-side checkpoint keeps track of the index values created or
-reused when it was NEW.
+A decoder-side checkpoint keeps track of the dynamic entries created
+or reused when it was NEW.
       </t>
       <section title="Entry Size">
         <t>
@@ -495,8 +495,8 @@ the sum of the entry name size, the entry value size, and 36.
 QMIN uses the smallest possible available value (Section 4.1.2) in the
 index address space for new entries.  Therefore, the total number of
 index values is at most the value of the largest index in use.  A
-checkpoint can track indices via a bitmask: 1 bit per index.  The size
-of a checkpoint, then, is defined as
+checkpoint can track dynamic entry references via a bitmask: 1 bit per
+dynamic table index.  The size of a checkpoint, then, is defined as
 
           <figure>
             <artwork>
@@ -505,8 +505,16 @@ of a checkpoint, then, is defined as
           </figure>
 
 The additional 64 bytes is the checkpoint overhead.
-
-        
+        </t>
+        <t>
+The size of the NEW checkpoint is dynamic: it needs to be recalculated
+using the formula above each time a new reference is added to it.  Before
+inserting or reusing an entry, the new table size should be calculated,
+including the new NEW checkpoint size into account.
+        </t>
+        <t>
+Once the NEW checkpoint is flushed, however, its size stops changing.  The
+size of a non-NEW checkpoint is the size of this checkpoint at flush time.
         </t>
       </section>
       <section title="Overall Table Size">

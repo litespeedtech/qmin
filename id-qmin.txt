@@ -90,21 +90,21 @@ Table of Contents
    7.  Encoding Process  . . . . . . . . . . . . . . . . . . . . . .  11
      7.1.  Indexable Header Fields . . . . . . . . . . . . . . . . .  11
        7.1.1.  New Index . . . . . . . . . . . . . . . . . . . . . .  11
-       7.1.2.  Existing Index  . . . . . . . . . . . . . . . . . . .  11
+       7.1.2.  Existing Index  . . . . . . . . . . . . . . . . . . .  12
      7.2.  Non-indexable Header Fields . . . . . . . . . . . . . . .  12
      7.3.  When Maximum Table Size Is Reached  . . . . . . . . . . .  12
      7.4.  Memory Cost of Flushing . . . . . . . . . . . . . . . . .  12
-   8.  Decoding Process  . . . . . . . . . . . . . . . . . . . . . .  12
+   8.  Decoding Process  . . . . . . . . . . . . . . . . . . . . . .  13
    9.  Encoder Strategies  . . . . . . . . . . . . . . . . . . . . .  13
      9.1.  Flushing and Dropping . . . . . . . . . . . . . . . . . .  13
        9.1.1.  Simple Strategy . . . . . . . . . . . . . . . . . . .  13
-       9.1.2.  Rule-Based Strategy . . . . . . . . . . . . . . . . .  13
+       9.1.2.  Rule-Based Strategy . . . . . . . . . . . . . . . . .  14
        9.1.3.  Feedback-Based Strategy . . . . . . . . . . . . . . .  14
-     9.2.  Control Channel Cost  . . . . . . . . . . . . . . . . . .  14
+     9.2.  Control Channel Cost  . . . . . . . . . . . . . . . . . .  15
    10. HPACK Interoperability  . . . . . . . . . . . . . . . . . . .  15
    11. Implementation Notes  . . . . . . . . . . . . . . . . . . . .  15
      11.1.  Control Messages Made Easy . . . . . . . . . . . . . . .  15
-   12. QMIN Drawbacks  . . . . . . . . . . . . . . . . . . . . . . .  15
+   12. QMIN Drawbacks  . . . . . . . . . . . . . . . . . . . . . . .  16
    13. Acknowledgements  . . . . . . . . . . . . . . . . . . . . . .  16
 
 
@@ -117,7 +117,7 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    14. References  . . . . . . . . . . . . . . . . . . . . . . . . .  16
      14.1.  Normative References . . . . . . . . . . . . . . . . . .  16
      14.2.  Informative References . . . . . . . . . . . . . . . . .  16
-   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  16
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  17
 
 1.  Introduction
 
@@ -531,8 +531,8 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    entry size.
 
    QMIN introduces checkpoints, whose size should also be accounted for.
-   A decoder-side checkpoint keeps track of the index values created or
-   reused when it was NEW.
+   A decoder-side checkpoint keeps track of the dynamic entries created
+   or reused when it was NEW.
 
 6.1.  Entry Size
 
@@ -548,12 +548,12 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    QMIN uses the smallest possible available value (Section 4.1.2) in
    the index address space for new entries.  Therefore, the total number
    of index values is at most the value of the largest index in use.  A
-   checkpoint can track indices via a bitmask: 1 bit per index.  The
-   size of a checkpoint, then, is defined as
+   checkpoint can track dynamic entry references via a bitmask: 1 bit
+   per dynamic table index.  The size of a checkpoint, then, is defined
+   as
 
        (Highest Index Value - 62) / 8 + 64
 
-   The additional 64 bytes is the checkpoint overhead.
 
 
 
@@ -561,6 +561,18 @@ Tikhonov                   Expires May 5, 2018                 [Page 10]
 
 Internet-Draft      QMIN: Header Compression for QUIC      November 2017
 
+
+   The additional 64 bytes is the checkpoint overhead.
+
+   The size of the NEW checkpoint is dynamic: it needs to be
+   recalculated using the formula above each time a new reference is
+   added to it.  Before inserting or reusing an entry, the new table
+   size should be calculated, including the new NEW checkpoint size into
+   account.
+
+   Once the NEW checkpoint is flushed, however, its size stops changing.
+   The size of a non-NEW checkpoint is the size of this checkpoint at
+   flush time.
 
 6.3.  Overall Table Size
 
@@ -598,6 +610,14 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    recorded in the NEW checkpoint, and the encoder emits the
    INSERT_ENTRY command.
 
+
+
+
+Tikhonov                   Expires May 5, 2018                 [Page 11]
+
+Internet-Draft      QMIN: Header Compression for QUIC      November 2017
+
+
    If the encoded name component refers to an existing entry, this entry
    is reused as described in Section 7.1.2.
 
@@ -609,14 +629,6 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    The encoder records a reference to the stream using this entry in one
    of the checkpoints.  (Which checkpoint to select can be decided based
    on strategy.  See Section 9.1).
-
-
-
-
-Tikhonov                   Expires May 5, 2018                 [Page 11]
-
-Internet-Draft      QMIN: Header Compression for QUIC      November 2017
-
 
    If the NEW checkpoint does not have a reference to this entry, the
    reference is recorded in the NEW checkpoint and the REUSE_ENTRY
@@ -654,6 +666,14 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    the memory constraint.  If inserting a new entry would result in
    subsequent inability to flush, the encoder SHOULD flush instead.
 
+
+
+
+Tikhonov                   Expires May 5, 2018                 [Page 12]
+
+Internet-Draft      QMIN: Header Compression for QUIC      November 2017
+
+
 8.  Decoding Process
 
    All header field representations defined in HPACK (Section 6 of
@@ -664,15 +684,6 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    header list to decode.  If corresponding entry is not found or if it
    is found but not referred to by any of LIVE checkpoints, this MUST be
    treated as an error.
-
-
-
-
-
-Tikhonov                   Expires May 5, 2018                 [Page 12]
-
-Internet-Draft      QMIN: Header Compression for QUIC      November 2017
-
 
 9.  Encoder Strategies
 
@@ -709,6 +720,16 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    will be overall suboptimal, as the initial period when no dynamic
    table is available for encoding is amortized poorly.
 
+
+
+
+
+
+Tikhonov                   Expires May 5, 2018                 [Page 13]
+
+Internet-Draft      QMIN: Header Compression for QUIC      November 2017
+
+
 9.1.2.  Rule-Based Strategy
 
    Heuristic rules may provide performance improvement over the simple
@@ -721,15 +742,6 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
       checkpoints and still be able to add new entries to the table.
       These early-flushed checkpoints will also be easier to drop later,
       as they are not referenced by many streams.
-
-
-
-
-Tikhonov                   Expires May 5, 2018                 [Page 13]
-
-Internet-Draft      QMIN: Header Compression for QUIC      November 2017
-
-
    o  Flush when the number of newly added entries is 1/10 of the number
       of existing entries.  When this many new entries have been added,
       it is a likely indicator making them available for encoding will
@@ -762,6 +774,18 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    It is possible to come up with a dynamic function that adjusts these
    parameters based on feedback: the compression performance.
 
+
+
+
+
+
+
+
+Tikhonov                   Expires May 5, 2018                 [Page 14]
+
+Internet-Draft      QMIN: Header Compression for QUIC      November 2017
+
+
 9.2.  Control Channel Cost
 
    Sending commands on the control channel affects the overall
@@ -778,14 +802,6 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    possible to maintain a history of a number of recently compressed
    header fields.  (To use less memory, hashes of header values, instead
    of the values themselves, can be stored.)  The encoder can consult
-
-
-
-Tikhonov                   Expires May 5, 2018                 [Page 14]
-
-Internet-Draft      QMIN: Header Compression for QUIC      November 2017
-
-
    this history and only issue an INSERT_ENTRY command if the header
    field has been seen before.
 
@@ -819,6 +835,13 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
    encoded header field representation, the latter can be placed onto
    the control stream verbatim.  Generate once, use twice.
 
+
+
+Tikhonov                   Expires May 5, 2018                 [Page 15]
+
+Internet-Draft      QMIN: Header Compression for QUIC      November 2017
+
+
 12.  QMIN Drawbacks
 
    The following QMIN properties affect compression negatively:
@@ -830,17 +853,6 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
       encoder receives ACK_FLUSH message.  Until that time, the header
       field literal representation must be used for subsequent
       encodings.
-
-
-
-
-
-
-
-Tikhonov                   Expires May 5, 2018                 [Page 15]
-
-Internet-Draft      QMIN: Header Compression for QUIC      November 2017
-
 
 13.  Acknowledgements
 
@@ -879,6 +891,13 @@ Internet-Draft      QMIN: Header Compression for QUIC      November 2017
               QUIC", draft-ietf-quic-http-07 (work in progress), October
               2017.
 
+
+
+Tikhonov                   Expires May 5, 2018                 [Page 16]
+
+Internet-Draft      QMIN: Header Compression for QUIC      November 2017
+
+
 Author's Address
 
    Dmitri Tikhonov
@@ -893,4 +912,41 @@ Author's Address
 
 
 
-Tikhonov                   Expires May 5, 2018                 [Page 16]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Tikhonov                   Expires May 5, 2018                 [Page 17]

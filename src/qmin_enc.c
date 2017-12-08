@@ -54,6 +54,17 @@ maybe_drop_checkpoints (struct qmin_enc *);
 static unsigned
 maybe_declare_dead_checkpoints (struct qmin_enc *);
 
+static size_t
+checkpoint_size (const struct enc_checkpoint *ckpoint, unsigned alt_max)
+{
+    unsigned max_id = id_list_max(&ckpoint->ecp_entry_ids);
+    if (alt_max > max_id)
+        max_id = alt_max;
+    return QMIN_CKPOINT_OVERHEAD
+         + (max_id - QMIN_STATIC_TABLE_N_ENTRIES - 1) / 8;
+}
+
+
 static struct enc_checkpoint *
 enc_ckpoint_new (unsigned min_stream_id_server, unsigned min_stream_id_client)
 {
@@ -183,6 +194,7 @@ struct qmin_enc
     const char                 *qme_idstr;
 
     unsigned                    qme_max_capacity;
+    unsigned                    qme_cur_capacity;
 
     size_t                      qme_bytes_out,
                                 qme_bytes_in;
@@ -257,7 +269,7 @@ qmin_enc_new (enum qmin_side side, unsigned max_capacity,
     buckets = malloc(sizeof(buckets[0]) * N_BUCKETS(nbits));
     if (!buckets)
     {
-        free(enc_checkpoint);
+        enc_ckpoint_destroy(enc_checkpoint);
         free(enc);
         return NULL;
     }
@@ -273,6 +285,7 @@ qmin_enc_new (enum qmin_side side, unsigned max_capacity,
     enc->qme_side         = side;
     enc->qme_ctl_out      = ctl_out;
     enc->qme_max_capacity = max_capacity;
+    enc->qme_cur_capacity = checkpoint_size(enc_checkpoint, 0);
     enc->qme_buckets      = buckets;
     enc->qme_nbits        = nbits;
     enc->qme_nelem        = 0;
@@ -1048,20 +1061,10 @@ send_duplicate_cmd (struct qmin_enc *enc, unsigned entry_id)
 
 
 static size_t
-checkpoint_size (const struct qmin_enc *enc)
-{
-    return QMIN_CKPOINT_OVERHEAD
-        + (id_list_max(&enc->qme_entry_ids)
-                                - QMIN_STATIC_TABLE_N_ENTRIES - 1) / 8;
-}
-
-
-static size_t
 qmin_enc_size (const struct qmin_enc *enc)
 {
     const struct enc_checkpoint *ckpoint;
     size_t size;
-    size_t ckpoint_size;
     unsigned n;
 
     size = 0;
@@ -1071,9 +1074,8 @@ qmin_enc_size (const struct qmin_enc *enc)
                  + enc->qme_entries.arr[n]->ete_name_len
                  + enc->qme_entries.arr[n]->ete_val_len;
 
-    ckpoint_size = checkpoint_size(enc);
     TAILQ_FOREACH(ckpoint, &enc->qme_checkpoints, ecp_next)
-        size += ckpoint_size;
+        size += checkpoint_size(ckpoint, 0);
 
     return size;
 }
@@ -1137,7 +1139,7 @@ maybe_flush (struct qmin_enc *enc)
     }
 
     table_size = qmin_enc_size(enc);
-    if (table_size + checkpoint_size(enc) > enc->qme_max_capacity)
+    if (table_size + checkpoint_size(new_ckpoint, 0) > enc->qme_max_capacity)
     {
         TRACE("cannot flush: memory limit");
         return 0;
@@ -1339,16 +1341,21 @@ static int
 check_table_size_before_push (struct qmin_enc *enc, unsigned name_len,
                               unsigned val_len)
 {
+    const struct enc_checkpoint *new_ckpoint;
+    unsigned new_checkpoint_size, n_newly_dead;
     size_t entry_size;
-    unsigned n_newly_dead;
     int n_dropped;
+
+    new_ckpoint = TAILQ_FIRST(&enc->qme_checkpoints);
+    new_checkpoint_size = checkpoint_size(new_ckpoint,
+                               id_list_min_unused(&enc->qme_entry_ids));
 
     entry_size = QMIN_DYNAMIC_ENTRY_OVERHEAD + name_len + val_len;
 
     if (entry_size > enc->qme_max_capacity / 3 * 4)
         return 0;
 
-    if (qmin_enc_size(enc) + entry_size + checkpoint_size(enc)
+    if (qmin_enc_size(enc) + entry_size + new_checkpoint_size
                                                 <= enc->qme_max_capacity)
         return 1;
 
@@ -1356,7 +1363,7 @@ check_table_size_before_push (struct qmin_enc *enc, unsigned name_len,
     if (maybe_drop_checkpoints(enc) < 0)
         return -1;
 
-    while (qmin_enc_size(enc) + entry_size + checkpoint_size(enc)
+    while (qmin_enc_size(enc) + entry_size + new_checkpoint_size
                                                 > enc->qme_max_capacity)
     {
         n_newly_dead = maybe_declare_dead_checkpoints(enc);
@@ -1370,7 +1377,7 @@ check_table_size_before_push (struct qmin_enc *enc, unsigned name_len,
             return 0;
     }
 
-    if (qmin_enc_size(enc) + entry_size + checkpoint_size(enc)
+    if (qmin_enc_size(enc) + entry_size + new_checkpoint_size
                                                 > enc->qme_max_capacity)
     {
         maybe_flush(enc);

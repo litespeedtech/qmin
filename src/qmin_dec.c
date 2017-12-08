@@ -211,30 +211,12 @@ qmin_dec_destroy (struct qmin_dec *dec)
 }
 
 
-/* XXX This is inefficient.  I intend to change the way checkpoint size is
- * calculated, because once a checkpoint goes from NEW to LIVE, its size
- * does not change.  This would make calculations simpler, not to mention
- * more correct.
- */
-static unsigned
-dec_max_entry_id (const struct qmin_dec *dec)
-{
-    unsigned n, max;
-
-    max = 0;
-    for (n = 0; n < dec->qmd_count; ++n)
-        if (dec->qmd_entries[n])
-            max = n;
-
-    return max + QMIN_STATIC_TABLE_N_ENTRIES + 1;
-}
-
-
 static size_t
-dec_checkpoint_size (const struct qmin_dec *dec)
+dec_checkpoint_size (const struct dec_checkpoint *ckpoint)
 {
+    unsigned max_id = id_list_max(&ckpoint->dcp_entry_ids);
     return QMIN_CKPOINT_OVERHEAD
-        + (dec_max_entry_id(dec) - QMIN_STATIC_TABLE_N_ENTRIES - 1) / 8;
+         + (max_id - QMIN_STATIC_TABLE_N_ENTRIES - 1) / 8;
 }
 
 
@@ -243,7 +225,6 @@ qmin_dec_size (const struct qmin_dec *dec)
 {
     const struct dec_checkpoint *ckpoint;
     size_t size;
-    size_t ckpoint_size;
     unsigned n;
 
     size = 0;
@@ -253,9 +234,8 @@ qmin_dec_size (const struct qmin_dec *dec)
                  + dec->qmd_entries[n]->dte_name_len
                  + dec->qmd_entries[n]->dte_val_len;
 
-    ckpoint_size = dec_checkpoint_size(dec);
     TAILQ_FOREACH(ckpoint, &dec->qmd_checkpoints, dcp_next)
-        size += ckpoint_size;
+        size += dec_checkpoint_size(ckpoint);
 
     return size;
 }
@@ -455,6 +435,11 @@ qmin_dec_duplicate (struct qmin_dec *dec, unsigned entry_id)
     {
     case ILA_ADDED:
         ++entry->dte_total_refcnt;
+        if (qmin_dec_size(dec) > dec->qmd_max_capacity)
+        {
+            TRACE("error: exceeded table capacity\n");
+            return -1;
+        }
         return 0;
     case ILA_EXISTS:    /* See SPEC, Section 4.1.2 */
         return -1;
@@ -738,6 +723,12 @@ qmin_dec_cmd_insert (struct qmin_dec *dec, const unsigned char **cur_p,
     dec->qmd_entries[idx] = new_entry;
 
     TRACE("inserted entry %u\n", new_entry_id);
+
+    if (qmin_dec_size(dec) > dec->qmd_max_capacity)
+    {
+        TRACE("error: exceeded table capacity\n");
+        return -1;
+    }
 
     *cur_p = p;
     return DEC_ST_OK;
